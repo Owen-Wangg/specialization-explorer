@@ -603,6 +603,16 @@ This means in most cases you do not need to manually trigger the pipeline — it
 5. Wait for the build to complete (this may take 5-10 minutes)
 6. You now have access to the `Amplify App ID` and the public domain name to use the web app.
 
+> [!NOTE]
+> If the build fails with the following IAM role error:
+>
+> `Unable to assume specified IAM Role. Please ensure the selected IAM Role has sufficient permissions and the Trust Relationship is configured correctly.`
+>
+> 1. In the Amplify app, go to **App settings**.
+> 2. Click **Branch settings**.
+> 3. Click **Reconnect repository** and complete the GitHub authorization.
+> 4. Return to the branch and click `Redeploy this version` again.
+
 ### Step 2: Configure Admin User
 
 To create an admin user for accessing the admin dashboard:
