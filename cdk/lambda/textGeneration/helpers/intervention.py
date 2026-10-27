@@ -168,8 +168,7 @@ def _call_llm_verifier(
                 }
             ],
             inferenceConfig={
-                "maxTokens": max_tokens,
-                "temperature": 0,
+                "maxTokens": max_tokens
             }
         )
 

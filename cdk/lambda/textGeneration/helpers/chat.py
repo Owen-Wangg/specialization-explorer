@@ -62,8 +62,7 @@ Output ONLY the search query. Do not include explanations, preambles, or quotes.
             messages=[{"role": "user", "content": [{"text": user_message}]}],
             system=[{"text": rewrite_system_prompt}],
             inferenceConfig={
-                "maxTokens": 50,  
-                "temperature": 0.0
+                "maxTokens": 50
             }
         )
         rewritten = response["output"]["message"]["content"][0]["text"].strip()
@@ -335,14 +334,15 @@ def get_response(
                 {"text": dynamic_prompt}
             ],
             "inferenceConfig": {
-                "maxTokens": config.MAX_TOKENS,
-                "temperature": config.TEMPERATURE
+                "maxTokens": config.MAX_TOKENS
             }
         }
 
     if model_arn == config.SONNET_ARN:
+        # Sonnet 5 turns thinking off with "between_tools"; earlier versions use "disabled"
+        thinking_off = "between_tools" if "claude-sonnet-5" in model_arn else "disabled"
         request_payload["additionalModelRequestFields"] = {
-            "thinking" : {"type": "disabled"},
+            "thinking" : {"type": thinking_off},
             "output_config": {"effort": "low"}
         }
 
