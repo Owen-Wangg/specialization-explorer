@@ -33,7 +33,7 @@
     "dompurify": "^3.4.17",
     "jspdf": "^4.2.1",
     "jszip": "3.10.2",
-    "lucide-react": "^0.545.0",
+    "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.3.1",
