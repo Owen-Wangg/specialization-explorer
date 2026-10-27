@@ -41,4 +41,12 @@ def validate_session_ownership(db_connection, session_id: str, user_id: str) -> 
         logger.error(f"DB Error: {e}")
         return False
 
-        
+
+def session_exists(db_connection, session_id: str) -> bool:
+    try:
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM chat_sessions WHERE id = %s", (session_id,))
+            return cursor.fetchone() is not None
+    except Exception as e:
+        logger.error(f"DB Error: {e}")
+        return True
