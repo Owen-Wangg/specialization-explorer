@@ -143,6 +143,8 @@ export class ApiGatewayStack extends cdk.Stack {
         email: true,
       },
       selfSignUpEnabled: true,
+      mfa: cognito.Mfa.OPTIONAL,
+      mfaSecondFactor: { otp: true, sms: false },
       autoVerify: {
         email: true,
       },

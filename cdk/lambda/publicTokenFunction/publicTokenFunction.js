@@ -7,6 +7,9 @@ const { getCorsHeaders } = require("./cors.js");
 const crypto = require("crypto");
 const { randomUUID } = crypto;
 
+// Must match the verification options in the user and WebSocket authorizers
+const TOKEN_OPTIONS = { algorithm: "HS256", issuer: "specex-public-token", audience: "specex-api" };
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const secretsManager = new SecretsManagerClient();
@@ -58,7 +61,7 @@ exports.handler = async (event) => {
         iat: Math.floor(Date.now() / 1000)  // Explicit issued-at timestamp
       },
       cachedSecret,
-      { expiresIn: "15m" }  // Reduced to 15 minutes for better security
+      { expiresIn: "15m", ...TOKEN_OPTIONS }  // Reduced to 15 minutes for better security
     );
     return {
       statusCode: 200,

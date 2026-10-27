@@ -32,7 +32,11 @@ exports.handler = async (event) => {
       cacheExpiry = Date.now() + CACHE_TTL_MS;
     }
 
-    const decoded = jwt.verify(token, cachedSecret);
+    const decoded = jwt.verify(token, cachedSecret, {
+      algorithms: ["HS256"],
+      issuer: "specex-public-token",
+      audience: "specex-api",
+    });
 
     // methodArn format: arn:aws:execute-api:region:account:apiId/stage/method/resource
     const arnParts = event.methodArn.split('/');

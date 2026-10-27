@@ -120,8 +120,8 @@ Specialization Explorer is an AI-powered conversational application that helps u
 ║   │     AWS Cognito      │   ║   │     Custom JWT       │       ║
 ║   │                      │   ║   │                      │       ║
 ║   │  · Email / password  │   ║   │  · Anonymous access  │       ║
-║   │  · MFA support       │   ║   │  · Short-lived token │       ║
-║   │  · Email verify      │   ║   │  · Auto-refresh      │       ║
+║   │  · Optional TOTP MFA │   ║   │  · Short-lived token │       ║
+║   │  · Email verify      │   ║   │  · Bound to user key │       ║
 ║   │  · Group membership  │   ║   │                      │       ║
 ║   └──────────┬───────────┘   ║   └──────────┬───────────┘       ║
 ║              │               ║              │                   ║

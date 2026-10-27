@@ -28,7 +28,11 @@ exports.handler = async (event) => {
       cachedSecret = JSON.parse(response.SecretString).jwtSecret;
     }
 
-    const decoded = jwt.verify(token, cachedSecret);
+    const decoded = jwt.verify(token, cachedSecret, {
+      algorithms: ["HS256"],
+      issuer: "specex-public-token",
+      audience: "specex-api",
+    });
 
     if (typeof decoded?.sub !== "string" || !UUID_REGEX.test(decoded.sub)) {
       console.warn("WebSocket connect rejected: token is not bound to a user");
