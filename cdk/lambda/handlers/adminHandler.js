@@ -1382,7 +1382,7 @@ exports.handler = async (event) => {
   }
 
   // Log response for debugging (visible in AWS CloudWatch Logs)
-  console.log(response);
+  console.log({ statusCode: response.statusCode });
 
   // Return HTTP response to API Gateway, which forwards it to the client
   return response;

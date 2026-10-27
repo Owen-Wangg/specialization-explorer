@@ -151,6 +151,6 @@ exports.handler = async (event) => {
         handleError(error, response);
     }
 
-    console.log(response);
+    console.log({ statusCode: response.statusCode });
     return response;
 };

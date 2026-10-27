@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-const clearAdminCache = () => {
+// Transcripts and user data are cached in memory only, so they are gone when the page closes.
+const adminCache = new Map<string, { timestamp: number; data: any }>();
+
+// Remove anything an earlier version of this page left in localStorage
+const clearLegacyStorage = () => {
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('admin_chat_')) {
             localStorage.removeItem(key);
@@ -18,40 +22,23 @@ const clearAdminCache = () => {
     });
 };
 
+const clearAdminCache = () => {
+    adminCache.clear();
+    clearLegacyStorage();
+};
+
 const getCachedItem = (key: string) => {
-    try {
-        const item = localStorage.getItem(key);
-        if (!item) return null;
-        const parsed = JSON.parse(item);
-        if (Date.now() - parsed.timestamp > CACHE_TTL) {
-            localStorage.removeItem(key);
-            return null;
-        }
-        return parsed.data;
-    } catch (e) {
+    const item = adminCache.get(key);
+    if (!item) return null;
+    if (Date.now() - item.timestamp > CACHE_TTL) {
+        adminCache.delete(key);
         return null;
     }
+    return item.data;
 };
 
 const setCachedItem = (key: string, data: any) => {
-    try {
-        localStorage.setItem(key, JSON.stringify({
-            timestamp: Date.now(),
-            data
-        }));
-    } catch (e) {
-        // Handle quota exceeded
-        console.warn('Local storage full, clearing admin cache');
-        clearAdminCache();
-        try {
-            localStorage.setItem(key, JSON.stringify({
-                timestamp: Date.now(),
-                data
-            }));
-        } catch (e2) {
-            console.error('Failed to cache item after clearing:', e2);
-        }
-    }
+    adminCache.set(key, { timestamp: Date.now(), data });
 };
 // --- Types ---
 type UserData = {
@@ -92,6 +79,7 @@ export default function ChatHistory() {
 
     // Initial load
     useEffect(() => {
+        clearLegacyStorage();
         fetchUsers();
     }, []);
 

@@ -41,7 +41,7 @@ const initConnection = async () => {
         username: credentials.username,
         password: credentials.password,
         database: credentials.dbname,
-        ssl: { rejectUnauthorized: false },
+        ssl: { rejectUnauthorized: true },
       };
 
       sqlConnection = postgres(connectionConfig);
@@ -386,6 +386,6 @@ exports.handler = async (event) => {
     handleError(error, response);
   }
 
-  console.log(response);
+  console.log({ statusCode: response.statusCode });
   return response;
 };

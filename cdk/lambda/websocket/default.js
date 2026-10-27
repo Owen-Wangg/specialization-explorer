@@ -64,10 +64,9 @@ exports.handler = async (event) => {
         },
       };
 
-      console.log(
-        "Invoking text generation function with payload:",
-        textGenPayload
-      );
+      console.log("Invoking text generation function", {
+        connectionId: event.requestContext.connectionId,
+      });
 
       const result = await lambda.send(
         new InvokeCommand({
