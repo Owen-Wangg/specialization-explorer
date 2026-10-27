@@ -189,7 +189,7 @@ if guardrail_result['action'] == ACTION_ANONYMIZED:
     query = guardrail_result['text']
 ```
 
-The guardrail is skipped entirely for intro message (`is_intro_message=True`).
+The guardrail is skipped only for the app's fixed intro prompt (`INTRO_PROMPT` in `chat.py`). A request counts as an intro message only if `is_intro_message` is set and the query exactly matches that prompt; otherwise the flag is ignored and the guardrail runs.
 
 ### IAM and Permissions
 
@@ -232,13 +232,13 @@ To change PII entities or attack sensitivity, edit the `guardrailConfig` object 
 
 2. **No output guardrail:** Guardrails are not applied to LLM responses. Output safety is handled by the system prompt guardrails and the intervention/assessment layer (`helpers/intervention.py`).
 
-3. **Intro messages:** The guardrail check is skipped for intro messages (`is_intro_message=True` in the request body).
+3. **Intro messages:** The guardrail check is skipped only when `is_intro_message` is true and the query is exactly the fixed `INTRO_PROMPT`. The flag alone never skips the guardrail. `INTRO_PROMPT` must be kept identical to `WELCOME_PROMPT` in `frontend/src/pages/ChatInterface/ChatInterface.tsx`.
 
 4. **Error handling:** If the `apply_guardrail` API call itself fails (network error, permissions issue, etc.), the Lambda returns a 500-level error rather than silently passing the message through.
 
 ### Automatic Protection
 
-Guardrails are applied automatically to all non-intro user queries handled by the text generation function. No additional runtime configuration is required — the Lambda reads `GUARDRAIL_ID` and `GUARDRAIL_VERSION` directly from its environment variables, which are set by CDK at deploy time.
+Guardrails are applied automatically to all user queries other than the fixed intro prompt handled by the text generation function. No additional runtime configuration is required — the Lambda reads `GUARDRAIL_ID` and `GUARDRAIL_VERSION` directly from its environment variables, which are set by CDK at deploy time.
 
 ## Testing
 

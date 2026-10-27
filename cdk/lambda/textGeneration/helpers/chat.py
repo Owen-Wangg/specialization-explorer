@@ -207,6 +207,16 @@ def _save_ai_response(
         db_connection.rollback()
         logger.error(f"Failed to save AI response: {e}")
 
+# Fixed opening prompt sent by the app when a chat starts. Only a query that matches
+# it exactly is treated as an intro message and skips the input guardrail.
+INTRO_PROMPT = """Hello! Please act as the Specialization Explorer.
+1. Introduce yourself briefly.
+2. Ask the student these 1 of these starter questions, and use some variation of these in the later responses to complete the checklist:
+   - What are your academic interests?
+   - Which course or department do you like most at UBC Science?
+   - Do you want to pursue research or enter industry after graduation?
+3. Be friendly and inviting."""
+
 def get_response(
     query: str,
     knowledge_base_id: str,
@@ -222,6 +232,9 @@ def get_response(
     
     usage_info = {}
     is_under_limit = True
+
+    # The flag is client-supplied, so it only counts for the fixed intro prompt
+    is_intro_message = is_intro_message and query == INTRO_PROMPT
 
     try:
         if not user_id:
