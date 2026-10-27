@@ -93,9 +93,16 @@ exports.handler = async (event) => {
         // Default role is student
         const role = "student";
         const userId = crypto.randomUUID();
-        const email = body.email || null;
+        // Emails given by anonymous callers are unverified, so they are kept as a contact address
+        // in metadata.contact_email and never written to users.email, which links a row to a
+        // verified Cognito identity at sign-up. Responses report whichever of the two is set.
+        const contactEmail = typeof body.email === "string" && body.email.trim()
+          ? body.email.trim().toLowerCase()
+          : null;
         const displayName = body.display_name || body.displayName || null;
-        const metadata = body.metadata || {};
+        const metadata = { ...(body.metadata || {}) };
+        delete metadata.contact_email;
+        if (contactEmail) metadata.contact_email = contactEmail;
 
         const now = new Date();
         const { userKey, userKeyHash } = generateUserKey();
@@ -108,12 +115,12 @@ exports.handler = async (event) => {
             metadata, user_key_hash
           )
           VALUES (
-            ${userId}, ${email}, ${displayName}, ${role},
+            ${userId}, NULL, ${displayName}, ${role},
             ${now}, ${now},
             ${metadata}, ${userKeyHash}
           )
           RETURNING
-            id, email, display_name, role,
+            id, COALESCE(email, metadata->>'contact_email') AS email, display_name, role,
             created_at, last_seen_at, metadata
         `;
 
@@ -156,7 +163,8 @@ exports.handler = async (event) => {
         }
 
         const user = await sqlConnection`
-          SELECT id, email, display_name, role, created_at, last_seen_at,
+          SELECT id, COALESCE(email, metadata->>'contact_email') AS email,
+                display_name, role, created_at, last_seen_at,
                 messages_sent, messages_window_started_at, metadata
           FROM users
           WHERE id = ${userId}
@@ -244,36 +252,27 @@ exports.handler = async (event) => {
           break;
         }
 
-        try {
-          const updatedUser = await sqlConnection`
-            UPDATE users
-            SET
-              email = ${normalizedEmail},
-              last_seen_at = NOW()
-            WHERE id = ${userId}
-            RETURNING
-              id,
-              email,
-              display_name,
-              role,
-              created_at,
-              last_seen_at,
-              messages_sent,
-              messages_window_started_at,
-              metadata
-          `;
+        const updatedUser = await sqlConnection`
+          UPDATE users
+          SET
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('contact_email', ${normalizedEmail}::text),
+            last_seen_at = NOW()
+          WHERE id = ${userId}
+          RETURNING
+            id,
+            COALESCE(email, metadata->>'contact_email') AS email,
+            display_name,
+            role,
+            created_at,
+            last_seen_at,
+            messages_sent,
+            messages_window_started_at,
+            metadata
+        `;
 
-          response.statusCode = 200;
-          response.body = JSON.stringify(updatedUser[0]);
-        } catch (err) {
-          // Postgres unique violation
-          if (err.code === "23505") {
-            response.statusCode = 409;
-            response.body = JSON.stringify({ error: "Email is already in use" });
-            break;
-          }
-          throw err;
-        }
+        response.statusCode = 200;
+        response.body = JSON.stringify(updatedUser[0]);
         break;
       }
 

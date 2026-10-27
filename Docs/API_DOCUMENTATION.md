@@ -177,7 +177,7 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/prod/user/uuid"
 
 ## Update User Email
 
-Update a user's email address.
+Save a contact email for an anonymous user. The address is unverified and is stored as metadata.contact_email, not as the account email.
 
 **Endpoint:** `PUT /user/{user_id}`
 
