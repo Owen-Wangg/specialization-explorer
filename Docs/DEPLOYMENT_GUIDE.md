@@ -300,17 +300,7 @@ aws ssm put-parameter \
     --profile <YOUR-PROFILE-NAME>
 ```
 
-Accounts created through sign-up have no admin access. After deployment, the first administrator must sign up and confirm their email, then be added to the Cognito `admin` group and have their `users.role` set to `admin` in the database:
-
-```bash
-aws cognito-idp admin-add-user-to-group \
-    --user-pool-id <USER-POOL-ID> \
-    --username <ADMIN-EMAIL> \
-    --group-name admin \
-    --profile <YOUR-PROFILE-NAME>
-```
-
-Further administrators can be promoted by an existing administrator through `POST /admin/promote_user`, which updates both the Cognito group and the database role.
+Self sign-up is disabled, so administrator accounts are created in the Cognito console after deployment (see [Step 2: Configure Admin User](#step-2-configure-admin-user)). The administrator's email domain must be in this allow-list.
 
 The application uses two Claude models for text generation, referenced via SSM parameters. You must create both parameters before deploying.
 
@@ -641,7 +631,9 @@ To create an admin user for accessing the admin dashboard:
 7. Click "Create user"
 8. After creation, select the user and click "Add user to group"
 9. Select the "admin" group
-10. On first login, you'll be prompted to change your password
+10. Open the web app and add `/admin/login` to the end of the URL, then sign in with the email and temporary password. You'll be prompted to set a new password on first login.
+
+After the first sign-in, the mode dropdown appears in the top right of the header, so the administrator can switch between the student and administrator views. Further administrators are created the same way. Administrators can optionally enroll an authenticator app (TOTP) for MFA.
 
 ### Step 3: Visit Web App
 
