@@ -36,13 +36,6 @@ def handler(event, context=None):
     query = body.get('query')
     is_intro_message = body.get('is_intro_message', False)
     
-    # Perform Query Length Validation 
-    if query and len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
-        return {
-            'statusCode': 400,
-            'body': json.dumps({'error': f'Query exceeds maximum length of {config.MAX_CHARACTERS_PER_USER_MESSAGE} characters'})
-        }
-    
     # The session comes from the route; the identity comes from the verified token
     path_parameters = event.get('pathParameters') or {}
     chat_session_id = path_parameters.get('chat_session_id') or path_parameters.get('id')
@@ -92,6 +85,13 @@ def handler(event, context=None):
         # Load dynamic configuration from DB
         config.load_config(conn)
         
+        # Validate the query length against the configured limit
+        if len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': f'Query exceeds maximum length of {config.MAX_CHARACTERS_PER_USER_MESSAGE} characters'})
+            }
+
         request_context = event.get('requestContext', {})
         connection_id = request_context.get('connectionId')
         apigw_management = None
