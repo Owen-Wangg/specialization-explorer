@@ -1028,7 +1028,7 @@ export class ApiGatewayStack extends cdk.Stack {
           RDS_PROXY_ENDPOINT: db.rdsProxyEndpoint,
           REGION: this.region,
           LLM_REGION: this.region,
-          BEDROCK_MODEL_ID: `us.anthropic.claude-sonnet-4-6`,
+          BEDROCK_MODEL_ID: `us.anthropic.claude-sonnet-5-5`,
           KB_SECRET_NAME: props.knowledgeBaseSecret.secretName
         },
       }
@@ -1201,12 +1201,18 @@ export class ApiGatewayStack extends cdk.Stack {
         `arn:aws:bedrock:${this.region}::foundation-model/mistral.mistral-large-2402-v1:0`,
         // Claude Sonnet 3 (Direct Foundation Models)
         `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
+        // Claude Sonnet 5.5
+        `arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-sonnet-5-5`,
+        `arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5`,
         // Claude Sonnet 4.6 (Converse currently resolves this model in us-west-2)
         `arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-sonnet-4-6`,
         `arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6`,
         // Claude Sonnet 4.5 (Direct Foundation Models)
         `arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0`,
         `arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0`,
+        // Claude Haiku 5.5
+        `arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-5-5`,
+        `arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5`,
         // Claude Haiku 4.5 (Converse currently resolves this model in us-west-2)
         `arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0`,
         `arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0`,

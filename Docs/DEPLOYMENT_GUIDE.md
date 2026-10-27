@@ -45,8 +45,8 @@ To request quota increases:
 1. Navigate to the **AWS Service Quotas** console in your AWS account
 2. Search for "Bedrock" in the service quotas
 3. Select the relevant LLM models you plan to use:
-   - Anthropic Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`)
-   - Anthropic Claude Sonnet 4.6 (`us.anthropic.claude-sonnet-4-6`)
+   - Anthropic Claude Haiku 5.5 (`us.anthropic.claude-haiku-5-5`)
+   - Anthropic Claude Sonnet 5.5 (`us.anthropic.claude-sonnet-5-5`)
    - Cohere Embed V3
 4. Request quota increases for "Requests per minute" based on your expected usage
 5. Submit the quota increase request and wait for AWS approval (this can take 24-48 hours)
@@ -312,7 +312,7 @@ The application uses two Claude models for text generation, referenced via SSM p
 ```bash
 aws ssm put-parameter \
     --name "/SpecEx/LLM/HaikuArn" \
-    --value "us.anthropic.claude-haiku-4-5-20251001-v1:0" \
+    --value "us.anthropic.claude-haiku-5-5" \
     --type String \
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -325,7 +325,7 @@ aws ssm put-parameter \
 ```cmd
 aws ssm put-parameter ^
     --name "/SpecEx/LLM/HaikuArn" ^
-    --value "us.anthropic.claude-haiku-4-5-20251001-v1:0" ^
+    --value "us.anthropic.claude-haiku-5-5" ^
     --type String ^
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -338,7 +338,7 @@ aws ssm put-parameter ^
 ```powershell
 aws ssm put-parameter `
     --name "/SpecEx/LLM/HaikuArn" `
-    --value "us.anthropic.claude-haiku-4-5-20251001-v1:0" `
+    --value "us.anthropic.claude-haiku-5-5" `
     --type String `
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -355,7 +355,7 @@ aws ssm put-parameter `
 ```bash
 aws ssm put-parameter \
     --name "/SpecEx/LLM/SonnetArn" \
-    --value "us.anthropic.claude-sonnet-4-6" \
+    --value "us.anthropic.claude-sonnet-5-5" \
     --type String \
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -368,7 +368,7 @@ aws ssm put-parameter \
 ```cmd
 aws ssm put-parameter ^
     --name "/SpecEx/LLM/SonnetArn" ^
-    --value "us.anthropic.claude-sonnet-4-6" ^
+    --value "us.anthropic.claude-sonnet-5-5" ^
     --type String ^
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -381,7 +381,7 @@ aws ssm put-parameter ^
 ```powershell
 aws ssm put-parameter `
     --name "/SpecEx/LLM/SonnetArn" `
-    --value "us.anthropic.claude-sonnet-4-6" `
+    --value "us.anthropic.claude-sonnet-5-5" `
     --type String `
     --profile <YOUR-PROFILE-NAME>
 ```

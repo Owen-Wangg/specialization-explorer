@@ -22,7 +22,7 @@ def _rewrite_query_for_retrieval(
     raw_query: str,
     chat_history: List[Dict[str, Any]],
     llm_region: str,
-    haiku_model_arn: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    haiku_model_arn: Optional[str] = None
 ) -> str:
     """
     Uses a fast, low-cost LLM call to rewrite a conversational user query into a
@@ -58,7 +58,7 @@ Output ONLY the search query. Do not include explanations, preambles, or quotes.
     try:
         bedrock_runtime = boto3.client("bedrock-runtime", region_name=llm_region)
         response = bedrock_runtime.converse(
-            modelId=haiku_model_arn,
+            modelId=haiku_model_arn or config.HAIKU_ARN,
             messages=[{"role": "user", "content": [{"text": user_message}]}],
             system=[{"text": rewrite_system_prompt}],
             inferenceConfig={

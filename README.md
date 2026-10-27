@@ -145,7 +145,7 @@ Please refer to [Knowledge Base Documentation](docs/KNOWLEDGE_BASE_DOCUMENTATION
 ### Backend
 
 - **AWS Lambda** (Python 3.12 and Node.js 22) for serverless compute
-- **Amazon Bedrock** for LLM inference — Claude Haiku 4.5 and Claude Sonnet 4.6 (Anthropic)
+- **Amazon Bedrock** for LLM inference — Claude Haiku 5.5 and Claude Sonnet 5.5 (Anthropic)
 - **Amazon Bedrock Knowledge Base** with **Cohere Embed English v3** for vector embeddings
 - **Amazon OpenSearch Serverless** for vector storage and similarity search
 - **PostgreSQL** (RDS) for relational data storage
@@ -201,7 +201,7 @@ For PostgreSQL — a liberal open source license, similar to BSD or MIT.
 For Cohere Embed English v3, accessed via Amazon Bedrock for vector embeddings.
 
 **[Anthropic Usage Policy](https://www.anthropic.com/legal/aup)**
-For Claude Haiku 4.5 and Claude Sonnet 4.6, accessed via Amazon Bedrock for text generation.
+For Claude Haiku 5.5 and Claude Sonnet 5.5, accessed via Amazon Bedrock for text generation.
 
 **[MIT License](https://opensource.org/licenses/MIT)**
 For open-source libraries and components used in this project.
