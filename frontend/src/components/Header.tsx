@@ -94,7 +94,7 @@ export default function Header() {
     };
 
     loadRole();
-  }, [userId, isLoadingUser]);
+  }, [userId, isLoadingUser, location.pathname]); // re-check after navigation, e.g. once admin login has completed
 
   const canSwitchModes = userRole === "admin";
 
