@@ -12,6 +12,7 @@ import { VpcStack } from "./vpc-stack";
 import { DatabaseStack } from "./database-stack";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { WebSocketLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import { WebSocketLambdaAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { Fn } from "aws-cdk-lib";
 import { Asset } from "aws-cdk-lib/aws-s3-assets";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -1336,6 +1337,7 @@ export class ApiGatewayStack extends cdk.Stack {
         SM_DB_CREDENTIALS: db.secretPathUser.secretName,
         RDS_PROXY_ENDPOINT: db.rdsProxyEndpoint,
         USER_POOL: this.userPool.userPoolId,
+        JWT_SECRET: jwtSecret.secretArn,
       },
       functionName: `${id}-userFunction`,
       memorySize: 512,
@@ -1345,6 +1347,7 @@ export class ApiGatewayStack extends cdk.Stack {
       tracing: lambda.Tracing.ACTIVE,
     });
 
+    jwtSecret.grantRead(lambdaUserFunction);
     lambdaUserFunction.addEnvironment('ALLOWED_ORIGIN_PARAM', this.allowedOriginsParamName);
     lambdaUserFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -1531,11 +1534,24 @@ export class ApiGatewayStack extends cdk.Stack {
       memorySize: 256,
       reservedConcurrentExecutions: 50,
       tracing: lambda.Tracing.ACTIVE,
+    });
+
+    // $connect authorizer: verifies the user-bound token and passes the user id to every route
+    const wsAuthorizerFunction = new lambda.Function(this, `${id}-WebSocketAuthorizerFunction`, {
+      functionName: `${id}-WebSocketAuthorizerFunction`,
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: "authorizer.handler",
+      code: lambda.Code.fromAsset("lambda/websocket"),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      reservedConcurrentExecutions: 50,
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         JWT_SECRET: jwtSecret.secretArn,
       },
       layers: [jwt],
     });
+    jwtSecret.grantRead(wsAuthorizerFunction);
 
     new cloudwatch.Alarm(this, 'ConnectFunctionConcurrencyAlarm', {
       metric: connectFunction.metric('ConcurrentExecutions', { statistic: cloudwatch.Stats.MAXIMUM }),
@@ -1622,7 +1638,6 @@ export class ApiGatewayStack extends cdk.Stack {
     disconnectFunction.addToRolePolicy(wsPolicy);
     defaultFunction.addToRolePolicy(wsPolicy);
 
-    jwtSecret.grantRead(connectFunction);
     // Grant the default function permission to invoke the text generation function
     lambdaTextGen.grantInvoke(defaultFunction);
 
@@ -1633,6 +1648,11 @@ export class ApiGatewayStack extends cdk.Stack {
       integration: new WebSocketLambdaIntegration(
         `${id}-ConnectIntegration`,
         connectFunction
+      ),
+      authorizer: new WebSocketLambdaAuthorizer(
+        `${id}-ConnectAuthorizer`,
+        wsAuthorizerFunction,
+        { identitySource: ["route.request.querystring.token"] }
       ),
     });
 

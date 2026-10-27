@@ -8,6 +8,7 @@ import { AiChatInput } from "@/components/ChatInterface/userInput";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { Message } from "@/types/Chat";
 import { useUser } from "@/providers/user";
+import { fetchUserToken } from "@/lib/userToken";
 
 type MaxCharactersResponse = {
   max_characters_per_user_message?: number;
@@ -159,14 +160,7 @@ export default function AIChatPage() {
       }
 
       try {
-        const response = await fetch(`${apiEndpoint}/user/publicToken`);
-        if (!response.ok) {
-          throw new Error(
-            `Token request failed with status ${response.status}`
-          );
-        }
-
-        const { token } = await response.json();
+        const token = await fetchUserToken();
         if (!isActive) {
           return;
         }
@@ -477,7 +471,6 @@ export default function AIChatPage() {
         action: "generate_text",
         query: promptText,
         chat_session_id: activeChatSessionId,
-        user_id: userId,
         is_intro_message: true,
       });
 
@@ -489,8 +482,7 @@ export default function AIChatPage() {
       console.log("[WebSocket] Fallback: Starting conversation via HTTP API...");
 
       try {
-        const tokenResponse = await fetch(`${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`);
-        const { token } = await tokenResponse.json();
+        const token = await fetchUserToken();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_ENDPOINT}/chat_sessions/${activeChatSessionId}/text_generation`,
@@ -503,7 +495,6 @@ export default function AIChatPage() {
             body: JSON.stringify({
               query: promptText,
               chat_session_id: activeChatSessionId,
-              user_id: userId,
               is_intro_message: true,
             }),
           }
@@ -619,7 +610,6 @@ export default function AIChatPage() {
         action: "generate_text",
         query: text,
         chat_session_id: activeChatSessionId,
-        user_id: userId,
       });
 
       if (success) {
@@ -649,10 +639,7 @@ export default function AIChatPage() {
 
     try {
       // Get fresh token for the request
-      const tokenResponse = await fetch(
-        `${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`
-      );
-      const { token } = await tokenResponse.json();
+      const token = await fetchUserToken();
       const response = await fetch(
         `${import.meta.env.VITE_API_ENDPOINT
         }/chat_sessions/${activeChatSessionId}/text_generation`,
@@ -665,7 +652,6 @@ export default function AIChatPage() {
           body: JSON.stringify({
             query: text,
             chat_session_id: activeChatSessionId,
-            user_id: userId,
           }),
         }
       );

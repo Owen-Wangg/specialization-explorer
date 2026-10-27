@@ -26,9 +26,16 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body);
-    const { action, query, chat_session_id, user_id, is_intro_message } = body;
+    const { action, query, chat_session_id, is_intro_message } = body;
 
     if (action === "generate_text") {
+      // Identity comes from the authorizer on $connect, never from the message body
+      const authenticatedUserId = event.requestContext?.authorizer?.userId;
+      const userValidation = validateUUID(authenticatedUserId, "user_id");
+      if (!userValidation.valid) {
+        return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }) };
+      }
+
       // Validate inputs before invoking text generation Lambda
       const sanitizedQuery = sanitizeString(query, 10000);
       if (!sanitizedQuery) {
@@ -40,11 +47,6 @@ exports.handler = async (event) => {
         return { statusCode: 400, body: JSON.stringify({ error: sessionValidation.error }) };
       }
 
-      const userValidation = validateUUID(user_id, "user_id");
-      if (!userValidation.valid) {
-        return { statusCode: 400, body: JSON.stringify({ error: userValidation.error }) };
-      }
-
       // Invoke the text generation Lambda function
       const textGenPayload = {
         pathParameters: {
@@ -52,13 +54,13 @@ exports.handler = async (event) => {
         },
         body: JSON.stringify({
           query: sanitizedQuery,
-          user_id: user_id,
           is_intro_message: is_intro_message
         }),
         requestContext: {
           connectionId: event.requestContext.connectionId,
           domainName: event.requestContext.domainName,
           stage: event.requestContext.stage,
+          authorizer: { userId: authenticatedUserId },
         },
       };
 

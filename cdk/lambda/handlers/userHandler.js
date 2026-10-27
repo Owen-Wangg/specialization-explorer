@@ -8,7 +8,23 @@ const crypto = require("crypto");
 const { validateUUID } = require("./utils/validation.js");
 
 let sqlConnection;
+let cachedJwtSecret;
 const secretsManager = new SecretsManagerClient();
+
+// Per-user credential exchanged at /user/publicToken for a token bound to this user.
+// Must stay in sync with the verification in publicTokenFunction.js.
+const deriveUserKey = async (userId) => {
+  if (!cachedJwtSecret) {
+    const response = await secretsManager.send(
+      new GetSecretValueCommand({ SecretId: process.env.JWT_SECRET })
+    );
+    cachedJwtSecret = JSON.parse(response.SecretString).jwtSecret;
+  }
+  return crypto
+    .createHmac("sha256", cachedJwtSecret)
+    .update(`user-key:${userId}`)
+    .digest("hex");
+};
 
 const initConnection = async () => {
   if (!sqlConnection) {
@@ -106,6 +122,7 @@ exports.handler = async (event) => {
 
         data = {
           userId: row.id,
+          userKey: await deriveUserKey(row.id),
           email: row.email,
           display_name: row.display_name,
           role: row.role,

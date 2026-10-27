@@ -224,19 +224,21 @@ def get_response(
     is_under_limit = True
 
     try:
-        if user_id:
-            is_under_limit, usage_info = check_limit(user_id, db_connection)
-            if not is_under_limit:
-                return {
-                    "response": "Daily message limit exceeded. Please try again tomorrow.",
-                    "sources_used": [],
-                    "sessionId": chat_session_id,
-                    "is_first_message": False,
-                    "message_limit_exceeded": True,
-                    "message_usage": usage_info,
-                    "warning": None,
-                    "intervention": None
-                }
+        if not user_id:
+            raise ValueError("An authenticated user is required.")
+
+        is_under_limit, usage_info = check_limit(user_id, db_connection)
+        if not is_under_limit:
+            return {
+                "response": "Daily message limit exceeded. Please try again tomorrow.",
+                "sources_used": [],
+                "sessionId": chat_session_id,
+                "is_first_message": False,
+                "message_limit_exceeded": True,
+                "message_usage": usage_info,
+                "warning": None,
+                "intervention": None
+            }
 
         if not is_intro_message:
             try:
@@ -287,7 +289,7 @@ def get_response(
             save_user_message=save_user_message
         )
 
-        if user_id and save_user_message:
+        if save_user_message:
             usage_info = record_message_sent(user_id, db_connection)
 
     except ValueError as e:

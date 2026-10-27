@@ -69,12 +69,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
 
         const id = data.userId
-        if (!id) {
-          throw new Error("Create user response missing user id");
+        if (!id || !data.userKey) {
+          throw new Error("Create user response missing user credentials");
         }
 
         const payload = {
           userId: id,
+          userKey: data.userKey,
           createdAt: new Date().toISOString(),
         };
 
@@ -99,10 +100,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
           try {
             const parsed = JSON.parse(raw) as {
               userId: string;
+              userKey?: string;
               createdAt?: string;
             };
 
-            if (parsed.userId) {
+            // Sessions stored before user keys existed cannot get a user-bound token
+            if (parsed.userId && parsed.userKey) {
               const ok = await validateUser(parsed);
               if (ok) {
                 setUserId(parsed.userId);

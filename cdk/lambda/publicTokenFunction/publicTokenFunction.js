@@ -4,7 +4,10 @@ const {
 } = require("@aws-sdk/client-secrets-manager");
 const jwt = require("jsonwebtoken");
 const { getCorsHeaders } = require("./cors.js");
-const { randomUUID } = require("crypto");
+const crypto = require("crypto");
+const { randomUUID } = crypto;
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const secretsManager = new SecretsManagerClient();
 let cachedSecret;
@@ -21,8 +24,35 @@ exports.handler = async (event) => {
       cacheExpiry = Date.now() + CACHE_TTL_MS;
     }
 
+    // Optional "Authorization: UserKey <userId>:<userKey>" binds the token to a user.
+    // Without it the token is anonymous (no sub) and cannot act as any user.
+    let subject;
+    const authHeader = event.headers?.Authorization || event.headers?.authorization;
+    if (authHeader?.startsWith("UserKey ")) {
+      const [userId, userKey] = authHeader.slice("UserKey ".length).trim().split(":");
+      const expected = crypto
+        .createHmac("sha256", cachedSecret)
+        .update(`user-key:${userId}`)
+        .digest("hex");
+      const provided = Buffer.from(userKey || "");
+      const expectedBuf = Buffer.from(expected);
+      if (
+        !UUID_REGEX.test(userId || "") ||
+        provided.length !== expectedBuf.length ||
+        !crypto.timingSafeEqual(provided, expectedBuf)
+      ) {
+        return {
+          statusCode: 401,
+          headers: await getCorsHeaders(event),
+          body: JSON.stringify({ error: "Invalid user credentials" }),
+        };
+      }
+      subject = userId;
+    }
+
     const token = jwt.sign(
       {
+        ...(subject && { sub: subject }),
         role: "user",
         jti: randomUUID(),  // Unique token ID for tracking/revocation
         iat: Math.floor(Date.now() / 1000)  // Explicit issued-at timestamp

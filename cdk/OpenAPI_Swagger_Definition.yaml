@@ -1545,9 +1545,6 @@ paths:
               properties:
                 query:
                   type: string
-                user_id:
-                  type: string
-                  format: uuid
       responses:
         "200":
           description: Generated text response

@@ -1,6 +1,7 @@
 
 import boto3.exceptions
 import json
+import uuid
 from helpers.cors import get_cors_headers
 import logging
 import os
@@ -8,6 +9,7 @@ import boto3
 from helpers.chat import get_response
 from helpers.db_connection import get_db_connection
 import helpers.config as config
+from helpers.crud import ensure_session_exists
 from helpers.session_security import validate_session_ownership, sanitize_session_id
 
 logger = logging.getLogger()
@@ -36,20 +38,25 @@ def handler(event, context=None):
     is_intro_message = body.get('is_intro_message', False)
     
     # Perform Query Length Validation 
-    if len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
+    if query and len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
         return {
             'statusCode': 400,
             'body': json.dumps({'error': f'Query exceeds maximum length of {config.MAX_CHARACTERS_PER_USER_MESSAGE} characters'})
         }
     
-    chat_session_id = body.get('chat_session_id')
-    
-    # Fallback to path parameters
-    if not chat_session_id and 'pathParameters' in event and event['pathParameters']:
-        chat_session_id = event['pathParameters'].get('chat_session_id') or event['pathParameters'].get('id')
+    # The session comes from the route; the identity comes from the verified token
+    path_parameters = event.get('pathParameters') or {}
+    chat_session_id = path_parameters.get('chat_session_id') or path_parameters.get('id')
 
-    user_id = body.get('user_id')
-    
+    user_id = ((event.get('requestContext') or {}).get('authorizer') or {}).get('userId')
+    try:
+        user_id = str(uuid.UUID(str(user_id)))
+    except ValueError:
+        return {
+            'statusCode': 401,
+            'body': json.dumps({'error': 'Unauthorized'})
+        }
+
     if not query or not chat_session_id:
         return {
             'statusCode': 400,
@@ -70,13 +77,15 @@ def handler(event, context=None):
     try:
         conn = get_db_connection()
 
-        # Validate the session ownership before doing anything with the session 
-        if user_id: 
-            if not validate_session_ownership(conn, chat_session_id, user_id): 
-                return {
-                    'statusCode': 403,
-                    'body': json.dumps({'error': 'Unauthorized access to chat session'})
-                }
+        # Claim the session for the caller if it does not exist yet, then
+        # validate ownership before doing anything with the session
+        ensure_session_exists(conn, chat_session_id, user_id)
+        conn.commit()
+        if not validate_session_ownership(conn, chat_session_id, user_id):
+            return {
+                'statusCode': 403,
+                'body': json.dumps({'error': 'Unauthorized access to chat session'})
+            }
         
         # Load dynamic configuration from DB
         config.load_config(conn)
