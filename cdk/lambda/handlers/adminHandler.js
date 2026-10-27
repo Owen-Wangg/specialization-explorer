@@ -148,7 +148,19 @@ exports.handler = async (event) => {
         // step with the DB role; a Cognito failure rolls the DB update back.
         let updated;
         try {
+          const callerEmail = (event.requestContext?.authorizer?.email || "").trim().toLowerCase();
+
           updated = await sqlConnection.begin(async (tx) => {
+            // An administrator linking their own verified email to this user takes
+            // it over from any older record that still holds it.
+            if (email === callerEmail) {
+              await tx`
+                UPDATE users
+                SET email = NULL, role = 'student'::user_role
+                WHERE lower(email) = ${email} AND id <> ${userId}::uuid
+              `;
+            }
+
             const rows = await tx`
               UPDATE users
               SET
