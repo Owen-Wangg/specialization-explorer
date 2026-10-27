@@ -900,11 +900,14 @@ export class ApiGatewayStack extends cdk.Stack {
       {
         runtime: lambda.Runtime.NODEJS_22_X,
         handler: "publicTokenFunction.handler",
-        layers: [jwt],
+        layers: [jwt, postgres],
         reservedConcurrentExecutions: 50,
         code: lambda.Code.fromAsset("lambda/publicTokenFunction"),
+        vpc: vpcStack.vpc,
         environment: {
           JWT_SECRET: jwtSecret.secretArn,
+          SM_DB_CREDENTIALS: db.secretPathUser.secretName,
+          RDS_PROXY_ENDPOINT: db.rdsProxyEndpoint,
         },
         timeout: Duration.seconds(30),
         memorySize: 128,
@@ -1349,7 +1352,6 @@ export class ApiGatewayStack extends cdk.Stack {
         SM_DB_CREDENTIALS: db.secretPathUser.secretName,
         RDS_PROXY_ENDPOINT: db.rdsProxyEndpoint,
         USER_POOL: this.userPool.userPoolId,
-        JWT_SECRET: jwtSecret.secretArn,
       },
       functionName: `${id}-userFunction`,
       memorySize: 512,
@@ -1359,7 +1361,6 @@ export class ApiGatewayStack extends cdk.Stack {
       tracing: lambda.Tracing.ACTIVE,
     });
 
-    jwtSecret.grantRead(lambdaUserFunction);
     lambdaUserFunction.addEnvironment('ALLOWED_ORIGIN_PARAM', this.allowedOriginsParamName);
     lambdaUserFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,

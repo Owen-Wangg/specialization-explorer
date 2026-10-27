@@ -8,22 +8,14 @@ const crypto = require("crypto");
 const { validateUUID } = require("./utils/validation.js");
 
 let sqlConnection;
-let cachedJwtSecret;
 const secretsManager = new SecretsManagerClient();
 
 // Per-user credential exchanged at /user/publicToken for a token bound to this user.
-// Must stay in sync with the verification in publicTokenFunction.js.
-const deriveUserKey = async (userId) => {
-  if (!cachedJwtSecret) {
-    const response = await secretsManager.send(
-      new GetSecretValueCommand({ SecretId: process.env.JWT_SECRET })
-    );
-    cachedJwtSecret = JSON.parse(response.SecretString).jwtSecret;
-  }
-  return crypto
-    .createHmac("sha256", cachedJwtSecret)
-    .update(`user-key:${userId}`)
-    .digest("hex");
+// Only the hash is stored (users.user_key_hash); must stay in sync with publicTokenFunction.js.
+const generateUserKey = () => {
+  const userKey = crypto.randomBytes(32).toString("hex");
+  const userKeyHash = crypto.createHash("sha256").update(userKey).digest("hex");
+  return { userKey, userKeyHash };
 };
 
 const initConnection = async () => {
@@ -106,18 +98,19 @@ exports.handler = async (event) => {
         const metadata = body.metadata || {};
 
         const now = new Date();
+        const { userKey, userKeyHash } = generateUserKey();
 
         // Create a new row (email can be null)
         const result = await sqlConnection`
           INSERT INTO users (
             id, email, display_name, role,
             created_at, last_seen_at,
-            metadata
+            metadata, user_key_hash
           )
           VALUES (
             ${userId}, ${email}, ${displayName}, ${role},
             ${now}, ${now},
-            ${metadata}
+            ${metadata}, ${userKeyHash}
           )
           RETURNING
             id, email, display_name, role,
@@ -128,7 +121,7 @@ exports.handler = async (event) => {
 
         data = {
           userId: row.id,
-          userKey: await deriveUserKey(row.id),
+          userKey,
           email: row.email,
           display_name: row.display_name,
           role: row.role,
