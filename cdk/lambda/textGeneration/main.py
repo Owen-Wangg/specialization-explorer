@@ -9,8 +9,7 @@ import boto3
 from helpers.chat import get_response
 from helpers.db_connection import get_db_connection
 import helpers.config as config
-from helpers.crud import ensure_session_exists
-from helpers.session_security import validate_session_ownership, sanitize_session_id
+from helpers.session_security import validate_session_ownership, sanitize_session_id, session_exists
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -77,11 +76,14 @@ def handler(event, context=None):
     try:
         conn = get_db_connection()
 
-        # Claim the session for the caller if it does not exist yet, then
-        # validate ownership before doing anything with the session
-        ensure_session_exists(conn, chat_session_id, user_id)
-        conn.commit()
+        # Sessions are only created through POST /chat_sessions, so an unknown id is a 404
+        # and nothing is written before ownership and the message quota are checked
         if not validate_session_ownership(conn, chat_session_id, user_id):
+            if not session_exists(conn, chat_session_id):
+                return {
+                    'statusCode': 404,
+                    'body': json.dumps({'error': 'Chat session not found'})
+                }
             return {
                 'statusCode': 403,
                 'body': json.dumps({'error': 'Unauthorized access to chat session'})
