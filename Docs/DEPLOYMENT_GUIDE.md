@@ -300,6 +300,18 @@ aws ssm put-parameter \
     --profile <YOUR-PROFILE-NAME>
 ```
 
+Accounts created through sign-up have no admin access. After deployment, the first administrator must sign up and confirm their email, then be added to the Cognito `admin` group and have their `users.role` set to `admin` in the database:
+
+```bash
+aws cognito-idp admin-add-user-to-group \
+    --user-pool-id <USER-POOL-ID> \
+    --username <ADMIN-EMAIL> \
+    --group-name admin \
+    --profile <YOUR-PROFILE-NAME>
+```
+
+Further administrators can be promoted by an existing administrator through `POST /admin/promote_user`, which updates both the Cognito group and the database role.
+
 The application uses two Claude models for text generation, referenced via SSM parameters. You must create both parameters before deploying.
 
 **Haiku model** (used for lightweight/fast responses):

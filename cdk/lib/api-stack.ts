@@ -252,7 +252,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-identity-pool`,
       {
-        allowUnauthenticatedIdentities: true,
+        allowUnauthenticatedIdentities: false,
         identityPoolName: `${id}IdentityPool`,
         cognitoIdentityProviders: [
           {
@@ -623,24 +623,21 @@ export class ApiGatewayStack extends cdk.Stack {
       })
     );
 
-    const unauthenticatedRole = new iam.Role(
-      this,
-      `${id}-UnauthenticatedRole`,
-      {
-        assumedBy: new iam.FederatedPrincipal(
-          "cognito-identity.amazonaws.com",
-          {
-            StringEquals: {
-              "cognito-identity.amazonaws.com:aud": this.identityPool.ref,
-            },
-            "ForAnyValue:StringLike": {
-              "cognito-identity.amazonaws.com:amr": "unauthenticated",
-            },
+    // Default role for authenticated identities outside the admin group; it has no permissions
+    const authenticatedRole = new iam.Role(this, `${id}-AuthenticatedRole`, {
+      assumedBy: new iam.FederatedPrincipal(
+        "cognito-identity.amazonaws.com",
+        {
+          StringEquals: {
+            "cognito-identity.amazonaws.com:aud": this.identityPool.ref,
           },
-          "sts:AssumeRoleWithWebIdentity"
-        ),
-      }
-    );
+          "ForAnyValue:StringLike": {
+            "cognito-identity.amazonaws.com:amr": "authenticated",
+          },
+        },
+        "sts:AssumeRoleWithWebIdentity"
+      ),
+    });
 
     const adminGroup = new cognito.CfnUserPoolGroup(this, `${id}-AdminGroup`, {
       groupName: "admin",
@@ -799,8 +796,15 @@ export class ApiGatewayStack extends cdk.Stack {
     new cognito.CfnIdentityPoolRoleAttachment(this, `${id}-IdentityPoolRoles`, {
       identityPoolId: this.identityPool.ref,
       roles: {
-        authenticated: adminRole.roleArn,
-        unauthenticated: unauthenticatedRole.roleArn,
+        authenticated: authenticatedRole.roleArn,
+      },
+      // Admin group members resolve to the group's role (adminRole); everyone else gets authenticatedRole
+      roleMappings: {
+        userPool: {
+          type: "Token",
+          ambiguousRoleResolution: "AuthenticatedRole",
+          identityProvider: `${this.userPool.userPoolProviderName}:${this.appClient.userPoolClientId}`,
+        },
       },
     });
 
@@ -1480,7 +1484,7 @@ export class ApiGatewayStack extends cdk.Stack {
         environment: {
           SM_DB_CREDENTIALS: db.secretPathUser.secretName,
           RDS_PROXY_ENDPOINT: db.rdsProxyEndpoint,
-
+          USER_POOL: this.userPool.userPoolId,
         },
         functionName: `${id}-adminFunction`,
         memorySize: 512,

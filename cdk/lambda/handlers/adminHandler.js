@@ -16,9 +16,17 @@ const {
   SecretsManagerClient,
   GetSecretValueCommand,
 } = require("@aws-sdk/client-secrets-manager");
+const {
+  CognitoIdentityProviderClient,
+  AdminAddUserToGroupCommand,
+  AdminRemoveUserFromGroupCommand,
+} = require("@aws-sdk/client-cognito-identity-provider");
+
+const ADMIN_GROUP_NAME = "admin";
 
 let sqlConnection;
 const secretsManager = new SecretsManagerClient();
+const cognito = new CognitoIdentityProviderClient();
 
 const initConnection = async () => {
   if (!sqlConnection) {
@@ -136,24 +144,59 @@ exports.handler = async (event) => {
           break;
         }
 
-        const updated = await sqlConnection`
-          UPDATE users
-          SET
-            email = ${email},
-            role = ${role}::user_role,
-            last_seen_at = NOW()
-          WHERE id = ${userId}::uuid
-          RETURNING
-            id,
-            email,
-            display_name,
-            role,
-            created_at,
-            last_seen_at,
-            messages_sent,
-            messages_window_started_at,
-            metadata
-        `;
+        // Keep the Cognito admin group (which gates the admin authorizer) in
+        // step with the DB role; a Cognito failure rolls the DB update back.
+        let updated;
+        try {
+          updated = await sqlConnection.begin(async (tx) => {
+            const rows = await tx`
+              UPDATE users
+              SET
+                email = ${email},
+                role = ${role}::user_role,
+                last_seen_at = NOW()
+              WHERE id = ${userId}::uuid
+              RETURNING
+                id,
+                email,
+                display_name,
+                role,
+                created_at,
+                last_seen_at,
+                messages_sent,
+                messages_window_started_at,
+                metadata
+            `;
+
+            if (rows.length > 0) {
+              const groupParams = {
+                UserPoolId: process.env.USER_POOL,
+                Username: email,
+                GroupName: ADMIN_GROUP_NAME,
+              };
+              try {
+                await cognito.send(
+                  role === "admin"
+                    ? new AdminAddUserToGroupCommand(groupParams)
+                    : new AdminRemoveUserFromGroupCommand(groupParams)
+                );
+              } catch (err) {
+                // A student without a Cognito account has no group to leave
+                if (!(role === "student" && err.name === "UserNotFoundException")) {
+                  throw err;
+                }
+              }
+            }
+            return rows;
+          });
+        } catch (err) {
+          if (err.name === "UserNotFoundException") {
+            response.statusCode = 400;
+            response.body = JSON.stringify({ error: "No Cognito account exists for this email" });
+            break;
+          }
+          throw err;
+        }
 
         if (updated.length === 0) {
           response.statusCode = 404;

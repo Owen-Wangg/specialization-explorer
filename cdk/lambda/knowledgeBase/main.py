@@ -114,6 +114,10 @@ def handler(event, context=None):
             return update_status(event=event, connection=connection)
 
         # API Gateway path
+        caller_role = ((event.get("requestContext") or {}).get("authorizer") or {}).get("role")
+        if caller_role != "admin":
+            return _response(event, 403, {"error": "Admin access required"})
+
         method = event.get("httpMethod", "")
         resource = event.get("resource", "")
         path = event.get("path", "")
