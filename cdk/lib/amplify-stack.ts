@@ -80,6 +80,26 @@ export class AmplifyStack extends cdk.Stack {
           }`,
       },
       buildSpec: BuildSpec.fromObjectToYaml(amplifyYaml),
+      customResponseHeaders: [
+        {
+          appRoot: "frontend",
+          pattern: "**/*",
+          headers: {
+            "Content-Security-Policy": [
+              "default-src 'self'",
+              "script-src 'self'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: https:",
+              "font-src 'self' data:",
+              `connect-src 'self' ${apiStack.getEndpointUrl()} ${apiStack.getWebSocketUrl()} https://cognito-idp.${this.region}.amazonaws.com https://cognito-identity.${this.region}.amazonaws.com https://*.s3.${this.region}.amazonaws.com https://*.s3.amazonaws.com`,
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'none'",
+            ].join("; "),
+          },
+        },
+      ],
     });
 
     amplifyApp.addCustomRule({

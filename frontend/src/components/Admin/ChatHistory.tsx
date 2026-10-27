@@ -6,40 +6,37 @@ import rehypeSanitize from "rehype-sanitize";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Bot, User, MessageSquare, ChevronDown, ChevronRight, Clock, RefreshCw } from "lucide-react";
 import { AuthService } from "@/functions/authService";
+import { apiCache } from "@/functions/apiCache";
 import { cn } from "@/lib/utils";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_PREFIX = 'admin_chat_';
 
-// Transcripts and user data are cached in memory only, so they are gone when the page closes.
-const adminCache = new Map<string, { timestamp: number; data: any }>();
+// Transcripts and user data live in the shared in-memory cache, which expires entries
+// after the TTL and is emptied on sign-out, so nothing is written to browser storage.
 
 // Remove anything an earlier version of this page left in localStorage
 const clearLegacyStorage = () => {
     Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('admin_chat_')) {
+        if (key.startsWith(CACHE_PREFIX)) {
             localStorage.removeItem(key);
         }
     });
 };
 
 const clearAdminCache = () => {
-    adminCache.clear();
+    ((apiCache.getStats() as { keys: string[] }).keys)
+        .filter(key => key.startsWith(CACHE_PREFIX))
+        .forEach(key => apiCache.delete(key));
     clearLegacyStorage();
 };
 
-const getCachedItem = (key: string) => {
-    const item = adminCache.get(key);
-    if (!item) return null;
-    if (Date.now() - item.timestamp > CACHE_TTL) {
-        adminCache.delete(key);
-        return null;
-    }
-    return item.data;
-};
+const getCachedItem = (key: string) => apiCache.get(key);
 
 const setCachedItem = (key: string, data: any) => {
-    adminCache.set(key, { timestamp: Date.now(), data });
+    apiCache.set(key, data, CACHE_TTL);
 };
+
 // --- Types ---
 type UserData = {
     id: string;
@@ -81,6 +78,7 @@ export default function ChatHistory() {
     useEffect(() => {
         clearLegacyStorage();
         fetchUsers();
+        return clearAdminCache;
     }, []);
 
     const getAuthHeaders = async () => {
