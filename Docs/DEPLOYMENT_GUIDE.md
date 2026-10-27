@@ -478,14 +478,16 @@ For example, if existing subnets use `172.31.0.0/20` and `172.31.16.0/20`, use `
 
 #### Initialize the CDK stack
 
+Run the CDK commands below from the `cdk` folder after `npm ci`. They use `npx cdk` so the CLI version always matches the project's `aws-cdk-lib`.
+
 **Initialize the CDK stack** (required only if you have not deployed any resources with CDK in this region before). Please replace `<YOUR-PROFILE-NAME>` with the appropriate AWS profile used earlier.
 
 ```bash
-cdk synth \
+npx cdk synth \
   --profile <YOUR-PROFILE-NAME> \
   --context githubRepo=specialization-explorer
 
-cdk bootstrap \
+npx cdk bootstrap \
   aws://<YOUR_AWS_ACCOUNT_ID>/<YOUR_ACCOUNT_REGION> \
   --profile <YOUR-PROFILE-NAME> \
   --context githubRepo=specialization-explorer
@@ -498,7 +500,7 @@ You may run the following command to deploy the stacks all at once. Again, repla
 The stack prefix will be prefixed onto the physical names of the resources created during deployment. The `environment` parameter specifies the deployment environment (dev, test, prod), the `version` parameter indicates the application version being deployed, and the `githubRepo` parameter should match your forked repository name.
 
 ```bash
-cdk deploy --all \
+npx cdk deploy --all \
   --context StackPrefix=<YOUR-STACK-PREFIX> \
   --context environment=dev \
   --context version=1.0.0 \
@@ -509,7 +511,7 @@ cdk deploy --all \
 For example:
 
 ```bash
-cdk deploy --all \
+npx cdk deploy --all \
   --context StackPrefix=<YOUR-STACK-PREFIX> \
   --context environment=dev \
   --context version=1.0.0 \
@@ -564,7 +566,7 @@ This means in most cases you do not need to manually trigger the pipeline — it
 1. Go to **AWS Console → CodePipeline** → select `<STACK-PREFIX>-CICD-DockerImagePipeline`.
 2. Check if the pipeline failed — a common cause is the GitHub connection not being authorized yet.
 3. Authorize the connection (see above), then click **Release change** to re-run the pipeline.
-4. Once the pipeline completes and the image is in ECR, redeploy: `cdk deploy <STACK-PREFIX>-KnowledgeBase --profile <YOUR-PROFILE-NAME>`.
+4. Once the pipeline completes and the image is in ECR, redeploy: `npx cdk deploy <STACK-PREFIX>-KnowledgeBase --profile <YOUR-PROFILE-NAME>`.
 
 **Notes:**
 

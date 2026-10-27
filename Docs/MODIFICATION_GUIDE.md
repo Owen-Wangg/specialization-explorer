@@ -79,7 +79,7 @@ AWS docs:
 2. Define a new `lambda.Function` in `cdk/lib/api-stack.ts`.
 3. Wire up the API Gateway route and authorizer in `api-stack.ts`.
 4. Update `OpenAPI_Swagger_Definition.yaml` to reflect the new endpoint.
-5. Run `cdk deploy`.
+5. Run `npx cdk deploy`.
 
 Example (Node.js):
 
@@ -217,7 +217,7 @@ The ingestion pipeline is handled by `cdk/lambda/knowledgeBase/` (Python Lambda)
 cd cdk
 npm install
 npm run build
-cdk deploy
+npx cdk deploy
 ```
 
 **Python Lambda dependencies:**
