@@ -647,11 +647,61 @@ export class ApiGatewayStack extends cdk.Stack {
       roleArn: adminRole.roleArn,
     });
 
-    const lambdaRole = new iam.Role(this, `${id}-postgresLambdaRole`, {
-      roleName: `${id}-postgresLambdaRole`,
-      assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
-    });
+    // Builds a VPC-capable Lambda role with the network, logging and tracing
+    // permissions every function needs; callers add only what their function uses
+    const createLambdaRole = (roleId: string) => {
+      const role = new iam.Role(this, roleId, {
+        roleName: roleId,
+        assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
+      });
 
+      // Grant access to EC2
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "ec2:CreateNetworkInterface",
+            "ec2:DescribeNetworkInterfaces",
+            "ec2:DeleteNetworkInterface",
+            "ec2:AssignPrivateIpAddresses",
+            "ec2:UnassignPrivateIpAddresses",
+          ],
+          resources: ["*"], // must be *
+        })
+      );
+
+      // Grant access to log
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            //Logs
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream",
+            "logs:PutLogEvents",
+          ],
+          resources: ["arn:aws:logs:*:*:*"],
+        })
+      );
+
+      // Grant X-Ray tracing permissions
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            "xray:PutTraceSegments",
+            "xray:PutTelemetryRecords",
+            "xray:GetSamplingRules",
+            "xray:GetSamplingTargets",
+          ],
+          resources: ["*"],
+        })
+      );
+
+      return role;
+    };
+
+    const lambdaRole = createLambdaRole(`${id}-postgresLambdaRole`);
 
     // Grant access to specific secrets instead of '*'
     db.secretPathUser.grantRead(lambdaRole);
@@ -666,71 +716,25 @@ export class ApiGatewayStack extends cdk.Stack {
       })
     );
 
-    // Grant access to EC2
-    lambdaRole.addToPolicy(
+    // Dedicated role for the admin function, the only code that changes Cognito group membership
+    const adminFunctionRole = createLambdaRole(`${id}-adminFunctionRole`);
+    db.secretPathUser.grantRead(adminFunctionRole);
+    adminFunctionRole.addToPolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: [
-          "ec2:CreateNetworkInterface",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DeleteNetworkInterface",
-          "ec2:AssignPrivateIpAddresses",
-          "ec2:UnassignPrivateIpAddresses",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminRemoveUserFromGroup",
         ],
-        resources: ["*"], // must be *
+        resources: [
+          `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${this.userPool.userPoolId}`,
+        ],
       })
     );
 
-    // Grant access to log
-    lambdaRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          //Logs
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-        ],
-        resources: ["arn:aws:logs:*:*:*"],
-      })
-    );
-
-    // Grant X-Ray tracing permissions
-    lambdaRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "xray:PutTraceSegments",
-          "xray:PutTelemetryRecords",
-          "xray:GetSamplingRules",
-          "xray:GetSamplingTargets",
-        ],
-        resources: ["*"],
-      })
-    );
-
-    // Inline policy to allow AdminAddUserToGroup action
-    const adminAddUserToGroupPolicyLambda = new iam.Policy(
-      this,
-      `${id}-adminAddUserToGroupPolicyLambda`,
-      {
-        statements: [
-          new iam.PolicyStatement({
-            effect: iam.Effect.ALLOW,
-            actions: [
-              "cognito-idp:AdminAddUserToGroup",
-              "cognito-idp:AdminRemoveUserFromGroup",
-              "cognito-idp:AdminGetUser",
-              "cognito-idp:AdminListGroupsForUser",
-            ],
-            resources: [
-              `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${this.userPool.userPoolId}`,
-            ],
-          }),
-        ],
-      }
-    );
-    lambdaRole.attachInlinePolicy(adminAddUserToGroupPolicyLambda);
+    // Dedicated role for the functions that verify or mint student tokens
+    const jwtLambdaRole = createLambdaRole(`${id}-jwtLambdaRole`);
+    db.secretPathUser.grantRead(jwtLambdaRole);
 
     const coglambdaRole = new iam.Role(
       this,
@@ -773,24 +777,13 @@ export class ApiGatewayStack extends cdk.Stack {
       })
     );
 
-    // Grant permission to add users to an IAM group
-    coglambdaRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ["iam:AddUserToGroup"],
-        resources: [
-          `arn:aws:iam::${this.account}:user/*`,
-          `arn:aws:iam::${this.account}:group/*`,
-        ],
-      })
-    );
-
-    // Redundant secrets manager access block removed
-
+    // The pre-signup trigger reads only the allowed email domains parameter
     coglambdaRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ["ssm:GetParameter"],
-        resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/*`],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/SpecEx/AllowedEmailDomains`,
+        ],
       })
     );
 
@@ -869,7 +862,7 @@ export class ApiGatewayStack extends cdk.Stack {
         memorySize: 256,
         reservedConcurrentExecutions: 50,
         layers: [jwt],
-        role: lambdaRole,
+        role: jwtLambdaRole,
         environment: {
           JWT_SECRET: jwtSecret.secretArn,
         },
@@ -911,7 +904,7 @@ export class ApiGatewayStack extends cdk.Stack {
         },
         timeout: Duration.seconds(30),
         memorySize: 128,
-        role: lambdaRole,
+        role: jwtLambdaRole,
       }
     );
 
@@ -1498,7 +1491,7 @@ export class ApiGatewayStack extends cdk.Stack {
         functionName: `${id}-adminFunction`,
         memorySize: 512,
         layers: [postgres],
-        role: lambdaRole,
+        role: adminFunctionRole,
         tracing: lambda.Tracing.ACTIVE,
       }
     );
