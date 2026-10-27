@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { UserContext } from "./user";
+import { fetchUserToken } from "@/lib/userToken";
 
 
 export function UserProvider({ children }: { children: ReactNode }) {
@@ -15,15 +16,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       createdAt?: string;
     }) => {
       try {
-        // get public token
-        const tokenResp = await fetch(
-          `${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`
-        );
-        if (!tokenResp.ok) {
-          console.error("Failed to get public token");
-          return false;
-        };
-        const { token } = await tokenResp.json();
+        // token bound to the stored user
+        const token = await fetchUserToken();
 
         // Validate user exists
         const validateResp = await fetch(

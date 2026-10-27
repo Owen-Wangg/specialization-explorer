@@ -18,12 +18,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useView } from "@/providers/view";
+import { fetchUserToken } from "@/lib/userToken";
 
 type ChatSessionActionsMenuProps = {
   chatSessionId: string;
   chatSessionName: string;
   displayName: string;
-  userId: string;
   isActive: boolean;
   onDeleted: () => void;
 };
@@ -32,7 +32,6 @@ export default function ChatSessionActionsMenu({
   chatSessionId,
   chatSessionName,
   displayName,
-  userId,
   isActive,
   onDeleted,
 }: ChatSessionActionsMenuProps) {
@@ -113,16 +112,9 @@ export default function ChatSessionActionsMenu({
     }
 
     try {
-      const tokenResp = await fetch(`${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`);
-      if (!tokenResp.ok) {
-        throw new Error("Failed to acquire public token");
-      }
-
-      const tokenData = await tokenResp.json();
-      const token = tokenData.token as string;
+      const token = await fetchUserToken();
 
       const url = new URL(`${import.meta.env.VITE_API_ENDPOINT}/chat_sessions/${chatSessionId}`);
-      url.searchParams.set("user_id", userId);
 
       const response = await fetch(url.toString(), {
         method: "DELETE",

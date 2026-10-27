@@ -68,6 +68,12 @@ const parseBody = (body) => {
   }
 };
 
+// The caller's identity, taken from the verified token. Anonymous tokens have none.
+const getAuthenticatedUserId = (event) => {
+  const userId = event.requestContext?.authorizer?.userId;
+  return validateUUID(userId).valid ? userId.toLowerCase() : null;
+};
+
 const handleError = (error, response) => {
   response.statusCode = 500;
   console.error("Internal server error:", error);
@@ -136,11 +142,23 @@ exports.handler = async (event) => {
       }
 
       case "GET /user/{user_id}": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
         const userId = event.pathParameters?.user_id;
         const userIdValidation = validateUUID(userId, "user_id");
         if (!userIdValidation.valid) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
           break;
         }
 
@@ -168,11 +186,23 @@ exports.handler = async (event) => {
 
       // Update's user with email so they no longer will be anonymous
       case "PUT /user/{user_id}": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
         const userId = event.pathParameters?.user_id;
         const userIdValidation = validateUUID(userId, "user_id");
         if (!userIdValidation.valid) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
           break;
         }
 
@@ -255,6 +285,13 @@ exports.handler = async (event) => {
       }
 
       case "GET /user/{user_id}/chat_sessions/{chat_session_id}/chat_history": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
         const userId = event.pathParameters?.user_id;
         const chatSessionId = event.pathParameters?.chat_session_id;
 
@@ -262,6 +299,11 @@ exports.handler = async (event) => {
         if (!userIdValidation.valid) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
           break;
         }
         const sessionIdValidation = validateUUID(chatSessionId, "chat_session_id");
@@ -292,7 +334,7 @@ exports.handler = async (event) => {
           response.body = JSON.stringify({ error: "Chat session not found" });
           break;
         }
-        if (chatSession[0].user_id !== userId) {
+        if (chatSession[0].user_id !== authenticatedUserId) {
           response.statusCode = 403;
           response.body = JSON.stringify({ error: "You can only access your own chat sessions" });
           break;

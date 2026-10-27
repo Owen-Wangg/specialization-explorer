@@ -6,6 +6,7 @@ import SideBar from "@/components/ChatInterface/SideBar";
 // import Footer from "@/components/Footer";
 import type { ChatSession } from "@/providers/view";
 import { useUser } from "@/providers/user";
+import { fetchUserToken } from "@/lib/userToken";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -78,13 +79,7 @@ export default function HomePage() {
 
   const getAnonymousChoiceKey = (id: string) => `specEx_anonymous_choice_${id}`;
 
-  const getPublicToken = async () => {
-    const tokenResponse = await fetch(
-      `${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`
-    );
-    if (!tokenResponse.ok) throw new Error("Failed to get public token");
-    return tokenResponse.json() as Promise<{ token: string }>;
-  };
+  const getPublicToken = async () => ({ token: await fetchUserToken() });
 
 const normalizeChatSession = (session: any): ChatSession => ({
 	id: session.id,
@@ -356,9 +351,7 @@ const normalizeChatSession = (session: any): ChatSession => ({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            user_sessions_session_id: userId,
-          }),
+          body: JSON.stringify({}),
         }
       );
 
@@ -410,7 +403,6 @@ const normalizeChatSession = (session: any): ChatSession => ({
       const { token } = await getPublicToken();
 
       const url = new URL(`${import.meta.env.VITE_API_ENDPOINT}/chat_sessions/${sessionId}`);
-      url.searchParams.set("user_id", userId);
 
       const response = await fetch(url.toString(), {
         method: "PUT",

@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { getCorsHeaders } = require("./utils/cors.js");
+const { validateUUID } = require("./utils/validation.js");
 const postgres = require("postgres");
 const {
   SecretsManagerClient,
@@ -51,6 +52,12 @@ const parseBody = (body) => {
   }
 };
 
+// The caller's identity, taken from the verified token. Anonymous tokens have none.
+const getAuthenticatedUserId = (event) => {
+  const userId = event.requestContext?.authorizer?.userId;
+  return validateUUID(userId).valid ? userId.toLowerCase() : null;
+};
+
 const handleError = (error, response) => {
   response.statusCode = 500;
   console.error("Internal server error:", error);
@@ -62,6 +69,13 @@ exports.handler = async (event) => {
   let data;
 
   try {
+    const authenticatedUserId = getAuthenticatedUserId(event);
+    if (!authenticatedUserId) {
+      response.statusCode = 401;
+      response.body = JSON.stringify({ error: "Authentication required" });
+      return response;
+    }
+
     await initConnection();
     const pathData = event.httpMethod + " " + event.resource;
 
@@ -72,6 +86,12 @@ exports.handler = async (event) => {
         if (!userId) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: "user_id is required" });
+          break;
+        }
+
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
           break;
         }
 
@@ -89,13 +109,7 @@ exports.handler = async (event) => {
 
       case "POST /chat_sessions": {
         const body = parseBody(event.body);
-        const userId = body.user_id || body.userId || body.user_sessions_session_id;
-
-        if (!userId) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: "user_id is required" });
-          break;
-        }
+        const userId = authenticatedUserId;
 
         const title = body.title || null;
         const metadata = body.metadata || {};
@@ -133,20 +147,9 @@ exports.handler = async (event) => {
       case "PUT /chat_sessions/{chat_session_id}": {
         const chatSessionId = event.pathParameters?.chat_session_id;
 
-        // Accept both names for compatibility while you transition
-        const userId =
-          event.queryStringParameters?.user_id ||
-          event.queryStringParameters?.user_session_id;
-
         if (!chatSessionId) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: "chat_session_id is required" });
-          break;
-        }
-
-        if (!userId) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: "user_id is required" });
           break;
         }
 
@@ -171,7 +174,7 @@ exports.handler = async (event) => {
           break;
         }
 
-        if (chatSession[0].user_id !== userId) {
+        if (chatSession[0].user_id !== authenticatedUserId) {
           response.statusCode = 403;
           response.body = JSON.stringify({ error: "You can only rename your own chat sessions" });
           break;
@@ -192,17 +195,10 @@ exports.handler = async (event) => {
 
       case "GET /chat_sessions/{chat_session_id}/chat_history": {
         const chatSessionId = event.pathParameters?.chat_session_id;
-        const authenticatedUserId = event?.requestContext?.authorizer?.userId;
 
         if (!chatSessionId) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: "chat_session_id is required" });
-          break;
-        }
-
-        if (!authenticatedUserId) {
-          response.statusCode = 401;
-          response.body = JSON.stringify({ error: "Authentication required" });
           break;
         }
 
@@ -250,20 +246,9 @@ exports.handler = async (event) => {
       case "DELETE /chat_sessions/{chat_session_id}": {
         const chatSessionId = event.pathParameters?.chat_session_id;
 
-        // Accept both names for compatibility while you transition
-        const userId =
-          event.queryStringParameters?.user_id ||
-          event.queryStringParameters?.user_session_id;
-
         if (!chatSessionId) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: "chat_session_id is required" });
-          break;
-        }
-
-        if (!userId) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: "user_id is required" });
           break;
         }
 
@@ -280,7 +265,7 @@ exports.handler = async (event) => {
           break;
         }
 
-        if (chatSession[0].user_id !== userId) {
+        if (chatSession[0].user_id !== authenticatedUserId) {
           response.statusCode = 403;
           response.body = JSON.stringify({ error: "You can only delete your own chat sessions" });
           break;

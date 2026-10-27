@@ -366,12 +366,7 @@ export default function AIChatPage() {
     const loadChatHistory = async () => {
       setIsLoadingHistory(true);
       try {
-        // Get public token
-        const tokenResponse = await fetch(
-          `${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`
-        );
-        if (!tokenResponse.ok) throw new Error("Failed to get public token");
-        const { token } = await tokenResponse.json();
+        const token = await fetchUserToken();
 
         const response = await fetch(
           `${import.meta.env.VITE_API_ENDPOINT}/user/${userId}/chat_sessions/${activeChatSessionId}/chat_history`,

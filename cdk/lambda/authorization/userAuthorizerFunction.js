@@ -9,6 +9,12 @@ let cachedSecret;
 let cacheExpiry = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+const ANONYMOUS_RESOURCES = [
+  "POST/user",
+  "GET/system_message/*",
+  "GET/system-settings/*",
+];
+
 exports.handler = async (event) => {
   const token = event.authorizationToken?.replace("Bearer ", "");
 
@@ -28,20 +34,20 @@ exports.handler = async (event) => {
 
     const decoded = jwt.verify(token, cachedSecret);
 
-    // Extract API Gateway ARN parts to create wildcard resource
     // methodArn format: arn:aws:execute-api:region:account:apiId/stage/method/resource
     const arnParts = event.methodArn.split('/');
     const apiGatewayArnPrefix = arnParts.slice(0, 2).join('/'); // arn:aws:execute-api:region:account:apiId/stage
-    const wildcardResource = `${apiGatewayArnPrefix}/*/*`; // Allow all methods and resources
 
-    const policy = generatePolicy(
-      decoded.sub || "user",
-      "Allow",
-      wildcardResource
-    );
+    // Tokens bound to a user (sub) may call the user-tier API. Anonymous tokens
+    // can only create a user and read the shared public settings.
+    const resources = decoded.sub
+      ? [`${apiGatewayArnPrefix}/*/*`]
+      : ANONYMOUS_RESOURCES.map((r) => `${apiGatewayArnPrefix}/${r}`);
+
+    const policy = generatePolicy(decoded.sub || "anonymous", "Allow", resources);
     policy.context = {
-      userId: decoded.sub || "user",
       ...decoded,
+      ...(decoded.sub && { userId: decoded.sub }),
     };
     return policy;
   } catch (err) {
@@ -50,7 +56,7 @@ exports.handler = async (event) => {
   }
 };
 
-function generatePolicy(principalId, effect, resource) {
+function generatePolicy(principalId, effect, resources) {
   return {
     principalId,
     policyDocument: {
@@ -59,7 +65,7 @@ function generatePolicy(principalId, effect, resource) {
         {
           Action: "execute-api:Invoke",
           Effect: effect,
-          Resource: resource,
+          Resource: resources,
         },
       ],
     },
