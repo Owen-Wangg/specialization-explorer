@@ -5,6 +5,7 @@ import {
 } from "@aws-cdk/aws-amplify-alpha";
 import * as cdk from "aws-cdk-lib";
 import { BuildSpec } from "aws-cdk-lib/aws-codebuild";
+import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
 import * as yaml from "yaml";
 import { ApiGatewayStack } from "./api-stack";
@@ -123,18 +124,22 @@ export class AmplifyStack extends cdk.Stack {
     // Set the allowed origins to the Amplify URL.
     // To add additional origins (e.g. custom domains), update the SSM parameter manually.
     // See Docs/DEPLOYMENT_GUIDE.md for instructions.
-    new cdk.custom_resources.AwsCustomResource(this, "UpdateSSMAllowedOrigins", {
-      onCreate: {
-        service: "SSM",
-        action: "putParameter",
-        parameters: {
-          Name: props.allowedOriginsParamName,
-          Value: amplifyUrl,
-          Type: "String",
-          Overwrite: true,
-        },
-        physicalResourceId: cdk.custom_resources.PhysicalResourceId.of("UpdateSSMAllowedOrigins"),
+    // Re-applied on every deployment so a stack update never reverts the allow-list
+    const updateAllowedOrigins = {
+      service: "SSM",
+      action: "putParameter",
+      parameters: {
+        Name: props.allowedOriginsParamName,
+        Value: amplifyUrl,
+        Type: "String",
+        Overwrite: true,
       },
+      physicalResourceId: cdk.custom_resources.PhysicalResourceId.of(Date.now().toString()),
+    };
+
+    new cdk.custom_resources.AwsCustomResource(this, "UpdateSSMAllowedOrigins", {
+      onCreate: updateAllowedOrigins,
+      onUpdate: updateAllowedOrigins,
       policy: cdk.custom_resources.AwsCustomResourcePolicy.fromSdkCalls({
         resources: [
           `arn:aws:ssm:${this.region}:${this.account}:parameter${props.allowedOriginsParamName}`,
@@ -142,25 +147,55 @@ export class AmplifyStack extends cdk.Stack {
       }),
     });
 
-    new cdk.custom_resources.AwsCustomResource(this, "UpdateS3BucketCors", {
-      onCreate: {
-        service: "S3",
-        action: "putBucketCors",
-        parameters: {
-          Bucket: props.knowledgeBaseBucketName,
-          CORSConfiguration: {
-            CORSRules: [
-              {
-                AllowedHeaders: ["*"],
-                AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"],
-                AllowedOrigins: [amplifyUrl],
-                ExposeHeaders: ["ETag"],
-              },
-            ],
-          },
-        },
-        physicalResourceId: cdk.custom_resources.PhysicalResourceId.of("UpdateS3BucketCors"),
+    // Origin used by the API preflight and gateway error responses
+    const updateStageOrigin = {
+      service: "APIGateway",
+      action: "updateStage",
+      parameters: {
+        restApiId: apiStack.api.restApiId,
+        stageName: apiStack.api.deploymentStage.stageName,
+        patchOperations: [
+          { op: "replace", path: "/variables/allowedOrigin", value: amplifyUrl },
+        ],
       },
+      physicalResourceId: cdk.custom_resources.PhysicalResourceId.of(Date.now().toString()),
+    };
+
+    new cdk.custom_resources.AwsCustomResource(this, "UpdateStageAllowedOrigin", {
+      onCreate: updateStageOrigin,
+      onUpdate: updateStageOrigin,
+      policy: cdk.custom_resources.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ["apigateway:PATCH"],
+          resources: [
+            `arn:aws:apigateway:${this.region}::/restapis/${apiStack.api.restApiId}/stages/${apiStack.api.deploymentStage.stageName}`,
+          ],
+        }),
+      ]),
+    });
+
+    const updateBucketCors = {
+      service: "S3",
+      action: "putBucketCors",
+      parameters: {
+        Bucket: props.knowledgeBaseBucketName,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedHeaders: ["*"],
+              AllowedMethods: ["GET", "PUT", "POST", "DELETE", "HEAD"],
+              AllowedOrigins: [amplifyUrl],
+              ExposeHeaders: ["ETag"],
+            },
+          ],
+        },
+      },
+      physicalResourceId: cdk.custom_resources.PhysicalResourceId.of(Date.now().toString()),
+    };
+
+    new cdk.custom_resources.AwsCustomResource(this, "UpdateS3BucketCors", {
+      onCreate: updateBucketCors,
+      onUpdate: updateBucketCors,
       policy: cdk.custom_resources.AwsCustomResourcePolicy.fromSdkCalls({
         resources: [`arn:aws:s3:::${props.knowledgeBaseBucketName}`],
       }),

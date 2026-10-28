@@ -37,7 +37,7 @@ interface ApiGatewayStackProps extends cdk.StackProps {
 }
 
 export class ApiGatewayStack extends cdk.Stack {
-  private readonly api: apigateway.SpecRestApi;
+  public readonly api: apigateway.SpecRestApi;
   public readonly appClient: cognito.UserPoolClient;
   public readonly userPool: cognito.UserPool;
   public readonly identityPool: cognito.CfnIdentityPool;
@@ -112,13 +112,12 @@ export class ApiGatewayStack extends cdk.Stack {
             Type: 'String',
             Description: 'List of allowed CORS origins for the API',
           },
-          physicalResourceId: cr.PhysicalResourceId.of(Date.now().toString()),
+          physicalResourceId: cr.PhysicalResourceId.of('InitAllowedOriginsParam'),
           ignoreErrorCodesMatching: 'ParameterAlreadyExists',
         };
     
         const initAllowedOrigins = new cr.AwsCustomResource(this, 'InitAllowedOriginsParamV2', {
           onCreate: crParams,
-          onUpdate: crParams,
           policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
             resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter${this.allowedOriginsParamName}`],
           }),
@@ -332,6 +331,12 @@ export class ApiGatewayStack extends cdk.Stack {
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
         dataTraceEnabled: false,
         metricsEnabled: true,
+
+        // Origin returned by preflight and gateway error responses; kept in sync with the
+        // allow-list by the Amplify stack once the app URL is known
+        variables: {
+          allowedOrigin: "http://localhost:5173",
+        },
         
         accessLogDestination: new apigateway.LogGroupLogDestination(
           accessLogGroup
@@ -553,7 +558,7 @@ export class ApiGatewayStack extends cdk.Stack {
       type: apigateway.ResponseType.WAF_FILTERED,
       statusCode: "429",
       responseHeaders: {
-        "Access-Control-Allow-Origin": "'*'",
+        "Access-Control-Allow-Origin": "stageVariables.allowedOrigin",
         "Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
         "Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE'",
       },
@@ -568,7 +573,7 @@ export class ApiGatewayStack extends cdk.Stack {
     this.api.addGatewayResponse(`${id}-Default4XXResponse`, {
       type: apigateway.ResponseType.DEFAULT_4XX,
       responseHeaders: {
-        "Access-Control-Allow-Origin": "'*'",
+        "Access-Control-Allow-Origin": "stageVariables.allowedOrigin",
         "Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
         "Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE'",
       },
@@ -578,7 +583,7 @@ export class ApiGatewayStack extends cdk.Stack {
     this.api.addGatewayResponse(`${id}-Default5XXResponse`, {
       type: apigateway.ResponseType.DEFAULT_5XX,
       responseHeaders: {
-        "Access-Control-Allow-Origin": "'*'",
+        "Access-Control-Allow-Origin": "stageVariables.allowedOrigin",
         "Access-Control-Allow-Headers": "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
         "Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE'",
       },

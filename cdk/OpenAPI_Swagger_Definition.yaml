@@ -20,9 +20,9 @@ x-amazon-apigateway-gateway-responses:
   UNAUTHORIZED:
     statusCode: "401"
     responseParameters:
-      gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
-      gatewayresponse.header.Access-Control-Allow-Methods: "'*'"
-      gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+      gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE'"
+      gatewayresponse.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
     responseTemplates:
       application/json: |
         {"message":$context.error.messageString}
@@ -46,8 +46,8 @@ x-common-options: &commonOptions
           statusCode: "200"
           responseParameters:
             method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-            method.response.header.Access-Control-Allow-Methods: "'*'"
-            method.response.header.Access-Control-Allow-Origin: "'*'"
+            method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE'"
+            method.response.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
           responseTemplates:
             application/json: |
               {}
@@ -1578,7 +1578,7 @@ paths:
             responseParameters:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
               method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
             responseTemplates:
               application/json: |
                 {}
@@ -2010,7 +2010,7 @@ paths:
             responseParameters:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
               method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
             responseTemplates:
               application/json: |
                 {}

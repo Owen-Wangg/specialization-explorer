@@ -180,7 +180,7 @@ export class KnowledgeBaseStack extends Stack {
     });
 
     // Use account and region for uniqueness (see https://aws.amazon.com/blogs/aws/introducing-account-regional-namespaces-for-amazon-s3-general-purpose-buckets/)
-    // The "*" origin is a placeholder, it is updated by the amplify-stack with the amplify-url to restrict request only to our application
+    // CORS is configured by the amplify-stack with the amplify-url to restrict requests only to our application
     this.knowledgeBaseBucket = new s3.Bucket(this, "KnowledgeBaseBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: RemovalPolicy.DESTROY,
@@ -189,12 +189,6 @@ export class KnowledgeBaseStack extends Stack {
       versioned: true,
       serverAccessLogsBucket: accessLogsBucket,
       serverAccessLogsPrefix: "kb-bucket-access-logs/",
-      cors: [{
-        allowedHeaders: ["*"],
-        allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.DELETE],
-        allowedOrigins: ["*"], 
-        exposedHeaders: ["ETag"],
-      }],
     });
 
     // Access the underlying L1 construct for enabling account regional space

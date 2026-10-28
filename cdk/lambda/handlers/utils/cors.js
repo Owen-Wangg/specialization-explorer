@@ -5,7 +5,7 @@ let cachedAllowedOrigins = null;
 const getAllowedOrigins = async () => {
   if (cachedAllowedOrigins) return cachedAllowedOrigins;
   const paramName = process.env.ALLOWED_ORIGIN_PARAM;
-  if (!paramName) return ["*"];
+  if (!paramName) return [];
   try {
     const ssm = new SSMClient();
     const command = new GetParameterCommand({ Name: paramName });
@@ -23,16 +23,14 @@ const getCorsHeaders = async (event) => {
   const allowedOrigins = await getAllowedOrigins();
   const origin = event?.headers?.origin || event?.headers?.Origin;
   let allowedOrigin = "";
-  if (allowedOrigins.includes("*")) {
-    allowedOrigin = "*";
-  } else if (allowedOrigins.includes(origin)) {
+  if (allowedOrigins.includes(origin)) {
     allowedOrigin = origin;
   }
 
   return {
     "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
     ...(allowedOrigin ? { "Access-Control-Allow-Origin": allowedOrigin } : {}),
-    "Access-Control-Allow-Methods": "*",
+    "Access-Control-Allow-Methods": "OPTIONS,GET,PUT,POST,DELETE",
   };
 };
 

@@ -9,7 +9,7 @@ def get_cors_headers(event):
     if cached_allowed_origins is None:
         param_name = os.environ.get('ALLOWED_ORIGIN_PARAM')
         if not param_name:
-            cached_allowed_origins = ["*"]
+            cached_allowed_origins = []
         else:
             try:
                 ssm = boto3.client('ssm')
@@ -20,21 +20,19 @@ def get_cors_headers(event):
                 # Do not cache — allow retry on next request once SSM recovers
                 return {
                     "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-                    "Access-Control-Allow-Methods": "*"
+                    "Access-Control-Allow-Methods": "OPTIONS,GET,PUT,POST,DELETE"
                 }
     
     headers = event.get('headers', {}) if event else {}
     origin = headers.get('origin') or headers.get('Origin')
     allowed_origin = ""
     
-    if "*" in cached_allowed_origins:
-        allowed_origin = "*"
-    elif origin in cached_allowed_origins:
+    if origin in cached_allowed_origins:
         allowed_origin = origin
         
     cors_headers = {
         "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-        "Access-Control-Allow-Methods": "*"
+        "Access-Control-Allow-Methods": "OPTIONS,GET,PUT,POST,DELETE"
     }
     if allowed_origin:
         cors_headers["Access-Control-Allow-Origin"] = allowed_origin
