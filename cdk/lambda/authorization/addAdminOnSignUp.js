@@ -26,7 +26,7 @@ exports.handler = async (event) => {
     const familyName = userAttributes.family_name || "";
     const displayName = `${givenName} ${familyName}`.trim() || email;
 
-    console.log("Creating user:", { email, displayName });
+    console.log("Creating user");
 
     // New accounts start without privileges; admins are granted via /admin/promote_user
     const result = await sqlConnection`
@@ -37,7 +37,7 @@ exports.handler = async (event) => {
       RETURNING id, email, role
     `;
 
-    console.log("User created/updated:", result[0]);
+    console.log("User created/updated:", { id: result[0]?.id, role: result[0]?.role });
 
     // IMPORTANT: For Cognito triggers, you must return the event object
     return event;
