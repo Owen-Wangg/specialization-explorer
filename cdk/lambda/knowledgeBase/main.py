@@ -68,6 +68,27 @@ def _connect_to_db():
             raise
     return connection
 
+def _resolve_admin_user(connection, event):
+    """The acting administrator, from the verified token e-mail; None unless the users row has role 'admin'."""
+    email = ((event.get("requestContext") or {}).get("authorizer") or {}).get("email")
+    if not isinstance(email, str) or not email.strip():
+        return None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, email
+            FROM users
+            WHERE lower(email) = lower(%s) AND role = 'admin'::user_role
+            LIMIT 1
+            """,
+            (email.strip(),),
+        )
+        row = cursor.fetchone()
+    connection.commit()
+    return {"id": str(row[0]), "email": row[1]} if row else None
+
+
 def _response(event, status_code: int, body: dict):
     return {
         "statusCode": status_code,
@@ -120,51 +141,38 @@ def handler(event, context=None):
 
         method = event.get("httpMethod", "")
         resource = event.get("resource", "")
-        path = event.get("path", "")
 
-        # Route: GET /admin/generate-presigned-url
-        if method == "GET" and (
-            resource == "/admin/generate-presigned-url"
-            or path.endswith("/admin/generate-presigned-url")
-        ):
-            return generate_presigned_url(event=event)
-
-        # Route: POST /admin/generate-presigned-urls/batch
-        if method == "POST" and (
-            resource == "/admin/generate-presigned-urls/batch"
-            or path.endswith("/admin/generate-presigned-urls/batch")
-        ):
-            try:
-                body = _parse_body(event)
-            except ValueError as e:
-                return _response(event, 400, {"error": str(e)})
-            return generate_presigned_urls_batch(event=event, body=body)
-
-        try:
-            body = _parse_body(event)
-        except ValueError as e:
-            return _response(event, 400, {"error": str(e)})
-        
-        # connect to database
         try:
             connection = _connect_to_db()
         except Exception as e:
             logger.error(f"Error connecting to database: {e}")
             return _response(event, 500, {"error": "Error connecting to database"})
 
+        # The acting administrator comes from the token, never from the request body
+        acting_user = _resolve_admin_user(connection, event)
+        if not acting_user:
+            return _response(event, 403, {"error": "Admin access required"})
+
+        # Route: GET /admin/generate-presigned-url
+        if method == "GET" and resource == "/admin/generate-presigned-url":
+            return generate_presigned_url(event=event)
+
+        try:
+            body = _parse_body(event)
+        except ValueError as e:
+            return _response(event, 400, {"error": str(e)})
+
+        # Route: POST /admin/generate-presigned-urls/batch
+        if method == "POST" and resource == "/admin/generate-presigned-urls/batch":
+            return generate_presigned_urls_batch(event=event, body=body)
+
         # Route: POST /admin/data_sources
-        if method == "POST" and (
-            resource == "/admin/data_sources"
-            or path.endswith("/admin/data_sources")
-        ):
-            return stage_data_sources(event=event, body=body, connection=connection)
+        if method == "POST" and resource == "/admin/data_sources":
+            return stage_data_sources(event=event, body=body, connection=connection, acting_user=acting_user)
 
         # Route: POST /admin/data_sources/batch
-        if method == "POST" and (
-            resource == "/admin/data_sources/batch"
-            or path.endswith("/admin/data_sources/batch")
-        ):
-            return stage_data_sources_batch(event=event, body=body, connection=connection)
+        if method == "POST" and resource == "/admin/data_sources/batch":
+            return stage_data_sources_batch(event=event, body=body, connection=connection, acting_user=acting_user)
 
         # Everything below this point needs KB ID
         try:
@@ -174,15 +182,13 @@ def handler(event, context=None):
             return _response(event, 500, {"error": "Error getting knowledge base ID"})
 
         # Route: POST /admin/data_sources/sync
-        if method == "POST" and (
-            resource == "/admin/data_sources/sync"
-            or path.endswith("/admin/data_sources/sync")
-        ):
+        if method == "POST" and resource == "/admin/data_sources/sync":
             return start_ingestion_job(
                 event=event,
                 body=body,
                 connection=connection,
                 kb_id=kb_id,
+                acting_user=acting_user,
             )
 
         return _response(
@@ -192,7 +198,6 @@ def handler(event, context=None):
                 "error": "Route not found",
                 "method": method,
                 "resource": resource,
-                "path": path,
             },
         )
 

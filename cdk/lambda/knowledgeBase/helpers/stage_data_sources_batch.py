@@ -2,7 +2,6 @@ import json
 import logging
 from helpers.cors import get_cors_headers
 from helpers.stage_data_sources import (
-    _get_user_id_by_email,
     _validate_file_pair,
     _assert_s3_object_exists,
     _existing_file_row_id,
@@ -22,14 +21,13 @@ def _response(event, status_code: int, body: dict):
     }
 
 
-def stage_data_sources_batch(event, body, connection):
+def stage_data_sources_batch(event, body, connection, acting_user):
     """
     Stage multiple CSV/Markdown + metadata JSON file pairs in a single request.
     Duplicates (matched by s3_bucket + s3_key) are silently skipped.
 
     Request body:
     {
-      "created_by": "admin@example.com",
       "items": [
         {
           "type": "csv" | "markdown",
@@ -44,21 +42,14 @@ def stage_data_sources_batch(event, body, connection):
       ]
     }
     """
-    created_by = body.get("created_by")
+    created_by_user_id = acting_user["id"]
     items = body.get("items")
-
-    if not created_by:
-        return _response(event, 400, {"error": "Missing created_by"})
 
     if not isinstance(items, list) or len(items) == 0:
         return _response(event, 400, {"error": "items must be a non-empty array"})
 
     if len(items) > 100:
         return _response(event, 400, {"error": "Too many items. Maximum is 100 per batch."})
-
-    created_by_user_id = _get_user_id_by_email(connection, created_by)
-    if not created_by_user_id:
-        return _response(event, 400, {"error": "Admin user not found in database"})
 
     staged = []
     skipped = []

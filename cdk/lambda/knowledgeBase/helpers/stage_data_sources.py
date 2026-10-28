@@ -25,22 +25,6 @@ def _response(event, status_code: int, body: dict):
     }
 
 
-def _get_user_id_by_email(connection, email: str) -> str | None:
-    """Look up the internal user ID for the admin email provided by the request"""
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE email = %s
-            LIMIT 1
-            """,
-            (email,),
-        )
-        row = cursor.fetchone()
-        return str(row[0]) if row else None
-
-
 def _is_markdown_file(file_name: str) -> bool:
     lower_name = file_name.lower()
     return lower_name.endswith(".md") or lower_name.endswith(".markdown")
@@ -183,7 +167,7 @@ def _insert_ingestion_run_row(
         return str(row[0])
 
 
-def stage_data_sources(event, body, connection):
+def stage_data_sources(event, body, connection, acting_user):
     """
     Stage either a website, CSV/JSON pair, or markdown/JSON pair for future syncing
 
@@ -199,17 +183,11 @@ def stage_data_sources(event, body, connection):
     - type = "markdown"
     """
     source_type = body.get("type")
-    created_by = body.get("created_by")
+    created_by = acting_user["email"]
+    created_by_user_id = acting_user["id"]
 
     if source_type not in {"website", "csv", "markdown"}:
         return _response(event, 400, {"error": "type must be one of: website, csv, markdown"})
-
-    if not created_by:
-        return _response(event, 400, {"error": "Missing created_by"})
-
-    created_by_user_id = _get_user_id_by_email(connection, created_by)
-    if not created_by_user_id:
-        return _response(event, 400, {"error": "Admin user not found in database"})
 
     try:
         if source_type == "website":
