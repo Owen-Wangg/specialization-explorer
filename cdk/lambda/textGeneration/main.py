@@ -33,6 +33,12 @@ def handler(event, context=None):
                 'body': json.dumps({'error': 'Invalid JSON body'})
             }
 
+    if not isinstance(body, dict):
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': 'Invalid JSON body'})
+        }
+
     query = body.get('query')
     is_intro_message = body.get('is_intro_message', False)
     
@@ -49,7 +55,7 @@ def handler(event, context=None):
             'body': json.dumps({'error': 'Unauthorized'})
         }
 
-    if not query or not chat_session_id:
+    if not isinstance(query, str) or not query.strip() or not chat_session_id:
         return {
             'statusCode': 400,
             'body': json.dumps({'error': 'Missing query or chat_session_id'})
