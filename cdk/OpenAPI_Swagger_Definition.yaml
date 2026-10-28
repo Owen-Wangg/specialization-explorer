@@ -57,35 +57,17 @@ paths:
     <<: *commonOptions
     post:
       tags: [Admin]
-      summary: Update an existing user's email and role (update-only)
+      summary: Record the calling administrator's own verified e-mail as an admin user
       operationId: admin_update_user
       security:
         - adminAuthorizer: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [user_id, email, role]
-              properties:
-                user_id:
-                  type: string
-                  description: UUID of the user row to update
-                email:
-                  type: string
-                role:
-                  type: string
-                  enum: [student, admin]
       responses:
         "200":
-          description: Updated user
-        "400":
-          description: Bad Request
+          description: The caller's user record
         "401":
           description: Unauthorized
-        "404":
-          description: User not found
+        "403":
+          description: Admin access required
       x-amazon-apigateway-integration:
         uri:
           Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${adminFunction.Arn}/invocations

@@ -538,37 +538,19 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/prod/admin/use
 
 ---
 
-### Update User Role
+### Register Calling Administrator
 
-Update an existing user's email and role.
+Records the calling administrator in the users table with the `admin` role. The user is identified by the verified e-mail in the caller's Cognito ID token; the request takes no body, and no other user can be targeted. Each call is written to the audit log with the previous and new role.
 
 **Endpoint:** `POST /admin/promote_user`
 
-**Request Body:**
-
-```json
-{
-  "user_id": "uuid",
-  "email": "user@example.com",
-  "role": "admin"
-}
-```
-
-**Parameters:**
-
-- `user_id` (string, required): UUID of the user to update
-- `email` (string, required): Updated email address
-- `role` (string, required): `student` or `admin`
-
-**Response:** `200 OK`
+**Response:** `200 OK` with the caller's user record
 
 **Example (cURL):**
 
 ```bash
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/prod/admin/promote_user" \
-  -H "Authorization: eyJraWQiOiJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "uuid", "email": "user@example.com", "role": "admin"}'
+  -H "Authorization: eyJraWQiOiJ..."
 ```
 
 ---

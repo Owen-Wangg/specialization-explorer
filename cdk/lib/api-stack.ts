@@ -635,21 +635,9 @@ export class ApiGatewayStack extends cdk.Stack {
       })
     );
 
-    // Dedicated role for the admin function, the only code that changes Cognito group membership
+    // Dedicated role for the admin function
     const adminFunctionRole = createLambdaRole(`${id}-adminFunctionRole`);
     db.secretPathUser.grantRead(adminFunctionRole);
-    adminFunctionRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: [
-          "cognito-idp:AdminAddUserToGroup",
-          "cognito-idp:AdminRemoveUserFromGroup",
-        ],
-        resources: [
-          `arn:aws:cognito-idp:${this.region}:${this.account}:userpool/${this.userPool.userPoolId}`,
-        ],
-      })
-    );
 
     // Dedicated role for the functions that verify or mint student tokens
     const jwtLambdaRole = createLambdaRole(`${id}-jwtLambdaRole`);

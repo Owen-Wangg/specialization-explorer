@@ -15,8 +15,9 @@ const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * Writes one structured audit record for a request. Recorded for every state-changing
  * request, every request to a privileged (admin) surface, and every denied request.
+ * `details` carries handler-known facts such as the previous and new value of a change.
  */
-const auditLog = (event, response, { privileged = false } = {}) => {
+const auditLog = (event, response, { privileged = false, details } = {}) => {
   const status = response.statusCode;
   const denied = status === 401 || status === 403;
   const changesState = !READ_ONLY_METHODS.has(event.httpMethod);
@@ -36,6 +37,7 @@ const auditLog = (event, response, { privileged = false } = {}) => {
       target: pickTarget(event.pathParameters),
       outcome: denied ? "denied" : status >= 400 ? "failed" : "success",
       statusCode: status,
+      ...(details && { details }),
     })
   );
 };
