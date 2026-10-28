@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { getCorsHeaders } = require("./utils/cors.js");
 const { validateUUID } = require("./utils/validation.js");
+const { auditLog } = require("./utils/audit.js");
 const postgres = require("postgres");
 const {
   SecretsManagerClient,
@@ -73,6 +74,7 @@ exports.handler = async (event) => {
     if (!authenticatedUserId) {
       response.statusCode = 401;
       response.body = JSON.stringify({ error: "Authentication required" });
+      auditLog(event, response);
       return response;
     }
 
@@ -295,6 +297,7 @@ exports.handler = async (event) => {
     handleError(error, response);
   }
 
+  auditLog(event, response);
   console.log({ statusCode: response.statusCode });
   return response;
 };

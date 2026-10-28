@@ -12,6 +12,7 @@
 
 const postgres = require("postgres");
 const { getCorsHeaders } = require("./utils/cors.js");
+const { auditLog } = require("./utils/audit.js");
 const {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -88,6 +89,7 @@ exports.handler = async (event) => {
   if (callerRole !== 'admin') {
     response.statusCode = 403;
     response.body = JSON.stringify({ error: 'Admin access required' });
+    auditLog(event, response, { privileged: true });
     return response;
   }
 
@@ -1393,7 +1395,7 @@ exports.handler = async (event) => {
     }
   }
 
-  // Log response for debugging (visible in AWS CloudWatch Logs)
+  auditLog(event, response, { privileged: true });
   console.log({ statusCode: response.statusCode });
 
   // Return HTTP response to API Gateway, which forwards it to the client

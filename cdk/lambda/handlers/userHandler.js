@@ -6,6 +6,7 @@ const {
 } = require("@aws-sdk/client-secrets-manager");
 const crypto = require("crypto");
 const { validateUUID } = require("./utils/validation.js");
+const { auditLog } = require("./utils/audit.js");
 
 let sqlConnection;
 const secretsManager = new SecretsManagerClient();
@@ -378,6 +379,7 @@ exports.handler = async (event) => {
     handleError(error, response);
   }
 
+  auditLog(event, response);
   console.log({ statusCode: response.statusCode });
   return response;
 };
