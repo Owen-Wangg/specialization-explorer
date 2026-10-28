@@ -273,13 +273,7 @@ exports.handler = async (event) => {
           break;
         }
 
-        // Delete children first if you DON'T have ON DELETE CASCADE
-        await sqlConnection`
-          DELETE FROM chat_messages
-          WHERE chat_session_id = ${chatSessionId}
-        `;
-
-        // Delete the chat session
+        // The session's messages are removed by the ON DELETE CASCADE foreign key
         await sqlConnection`
           DELETE FROM chat_sessions
           WHERE id = ${chatSessionId}
