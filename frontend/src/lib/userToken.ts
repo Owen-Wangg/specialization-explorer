@@ -22,6 +22,14 @@ export async function fetchUserToken(): Promise<string> {
     { headers }
   );
   if (!response.ok) {
+    // A rejected key is revoked or replaced, so drop it instead of replaying it
+    if (response.status === 401 && headers.Authorization) {
+      try {
+        localStorage.removeItem(USER_STORAGE_KEY);
+      } catch {
+        // Storage unavailable; nothing to clear
+      }
+    }
     throw new Error(`Token request failed with status ${response.status}`);
   }
 

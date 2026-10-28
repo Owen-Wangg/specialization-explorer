@@ -305,6 +305,47 @@ exports.handler = async (event) => {
         break;
       }
 
+      // Replaces the user's key; the previous key stops working immediately
+      case "POST /user/{user_id}/key": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
+        const userId = event.pathParameters?.user_id;
+        const userIdValidation = validateUUID(userId, "user_id");
+        if (!userIdValidation.valid) {
+          response.statusCode = 400;
+          response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
+          break;
+        }
+
+        const { userKey, userKeyHash } = generateUserKey();
+        const rotated = await sqlConnection`
+          UPDATE users
+          SET user_key_hash = ${userKeyHash},
+              user_key_version = user_key_version + 1
+          WHERE id = ${userId}
+          RETURNING user_key_version
+        `;
+
+        if (rotated.length === 0) {
+          response.statusCode = 404;
+          response.body = JSON.stringify({ error: "User not found" });
+          break;
+        }
+
+        response.body = JSON.stringify({ userKey });
+        break;
+      }
+
       case "GET /user/{user_id}/chat_sessions/{chat_session_id}/chat_history": {
         const authenticatedUserId = getAuthenticatedUserId(event);
         if (!authenticatedUserId) {

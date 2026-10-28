@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { UserContext } from "./user";
-import { fetchUserToken } from "@/lib/userToken";
+import { fetchUserToken, USER_STORAGE_KEY } from "@/lib/userToken";
 
+// A stored key older than this is replaced, which limits how long a leaked key stays usable
+const KEY_ROTATION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const LOCAL_KEY = "specEx_user_session";
+  const LOCAL_KEY = USER_STORAGE_KEY;
 
   useEffect(() => {
     const validateUser = async (stored: {
       userId: string;
       createdAt?: string;
+      keyIssuedAt?: string;
     }) => {
       try {
         // token bound to the stored user
@@ -30,10 +33,45 @@ export function UserProvider({ children }: { children: ReactNode }) {
           }
         );
 
-        return validateResp.ok;
+        if (!validateResp.ok) return false;
+
+        const issuedAt = Date.parse(stored.keyIssuedAt ?? "");
+        if (Number.isNaN(issuedAt) || Date.now() - issuedAt > KEY_ROTATION_INTERVAL_MS) {
+          await rotateKey(stored, token);
+        }
+        return true;
       } catch (e) {
         console.error("Error validating user:", e);
         return false;
+      }
+    };
+
+    // Failure keeps the current key, which stays valid until a rotation succeeds
+    const rotateKey = async (
+      stored: { userId: string; createdAt?: string },
+      token: string
+    ) => {
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_ENDPOINT}/user/${stored.userId}/key`,
+          { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!response.ok) return;
+
+        const { userKey } = await response.json();
+        if (!userKey) return;
+
+        localStorage.setItem(
+          LOCAL_KEY,
+          JSON.stringify({
+            userId: stored.userId,
+            userKey,
+            createdAt: stored.createdAt,
+            keyIssuedAt: new Date().toISOString(),
+          })
+        );
+      } catch (e) {
+        console.warn("Failed to rotate user key:", e);
       }
     };
 
@@ -71,6 +109,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           userId: id,
           userKey: data.userKey,
           createdAt: new Date().toISOString(),
+          keyIssuedAt: new Date().toISOString(),
         };
 
         try {
@@ -96,6 +135,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
               userId: string;
               userKey?: string;
               createdAt?: string;
+              keyIssuedAt?: string;
             };
 
             // Sessions stored before user keys existed cannot get a user-bound token
