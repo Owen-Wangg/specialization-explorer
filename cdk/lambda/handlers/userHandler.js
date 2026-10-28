@@ -8,6 +8,10 @@ const crypto = require("crypto");
 const { validateUUID } = require("./utils/validation.js");
 const { auditLog } = require("./utils/audit.js");
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_DISPLAY_NAME_LENGTH = 100;
+
 let sqlConnection;
 const secretsManager = new SecretsManagerClient();
 
@@ -90,20 +94,45 @@ exports.handler = async (event) => {
 
       case "POST /user": {
         const body = parseBody(event.body);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          response.statusCode = 400;
+          response.body = JSON.stringify({ error: "Request body must be a JSON object" });
+          break;
+        }
 
         // Default role is student
         const role = "student";
         const userId = crypto.randomUUID();
+
         // Emails given by anonymous callers are unverified, so they are kept as a contact address
         // in metadata.contact_email and never written to users.email, which links a row to a
         // verified Cognito identity at sign-up. Responses report whichever of the two is set.
-        const contactEmail = typeof body.email === "string" && body.email.trim()
-          ? body.email.trim().toLowerCase()
-          : null;
-        const displayName = body.display_name || body.displayName || null;
-        const metadata = { ...(body.metadata || {}) };
-        delete metadata.contact_email;
-        if (contactEmail) metadata.contact_email = contactEmail;
+        let contactEmail = null;
+        if (body.email !== undefined && body.email !== null && body.email !== "") {
+          const candidate = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+          if (candidate.length > MAX_EMAIL_LENGTH || !EMAIL_REGEX.test(candidate)) {
+            response.statusCode = 400;
+            response.body = JSON.stringify({ error: "Invalid email format" });
+            break;
+          }
+          contactEmail = candidate;
+        }
+
+        let displayName = null;
+        const rawDisplayName = body.display_name ?? body.displayName;
+        if (rawDisplayName !== undefined && rawDisplayName !== null && rawDisplayName !== "") {
+          displayName = typeof rawDisplayName === "string" ? rawDisplayName.trim() : "";
+          if (!displayName || displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+            response.statusCode = 400;
+            response.body = JSON.stringify({
+              error: `display_name must be a non-empty string of at most ${MAX_DISPLAY_NAME_LENGTH} characters`,
+            });
+            break;
+          }
+        }
+
+        // Anonymous callers cannot set metadata; the only key stored is the server-built contact_email
+        const metadata = contactEmail ? { contact_email: contactEmail } : {};
 
         const now = new Date();
         const { userKey, userKeyHash } = generateUserKey();
@@ -234,8 +263,7 @@ exports.handler = async (event) => {
           break;
         }
 
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(normalizedEmail)) {
+        if (!EMAIL_REGEX.test(normalizedEmail)) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: "Invalid email format" });
           break;
