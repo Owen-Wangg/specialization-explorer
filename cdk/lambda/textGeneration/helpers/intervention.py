@@ -213,7 +213,7 @@ def _call_llm_verifier(
                 "support_score": 0.3,
                 "scope_alignment_score": 0.3,
                 "label": "partially_grounded",
-                "reasons": [f"LLM verifier failed: {str(e)}"],
+                "reasons": ["verification unavailable"],
                 "supported_claims": [],
                 "unsupported_claims": [],
             }
