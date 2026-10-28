@@ -187,6 +187,15 @@ export class KnowledgeBaseStack extends Stack {
       autoDeleteObjects: true,
       enforceSSL: true,
       versioned: true,
+      lifecycleRules: [
+        {
+          // Uploads that were never staged are not part of the corpus; clear them out
+          id: "ExpireUnstagedUploads",
+          prefix: "quarantine/",
+          expiration: cdk.Duration.days(7),
+          noncurrentVersionExpiration: cdk.Duration.days(7),
+        },
+      ],
       serverAccessLogsBucket: accessLogsBucket,
       serverAccessLogsPrefix: "kb-bucket-access-logs/",
     });
@@ -349,6 +358,7 @@ export class KnowledgeBaseStack extends Stack {
       effect: iam.Effect.ALLOW,
       actions: [
         "bedrock:GetKnowledgeBase",
+        "bedrock:GetDataSource",
         "bedrock:UpdateKnowledgeBase",
         "bedrock:DeleteKnowledgeBase",
         "bedrock:CreateDataSource",
@@ -413,6 +423,8 @@ export class KnowledgeBaseStack extends Stack {
         MetadataField: METADATA_FIELD_NAME,
         Description: "Knowledge base for RAG application with S3 and web-crawled content",
         S3BucketArn: this.knowledgeBaseBucket.bucketArn,
+        // Bedrock reads only this prefix; presigned uploads land under quarantine/ until staging promotes them
+        S3InclusionPrefix: "uploads/",
         WebCrawlerUrls: webCrawlerUrls,
         // If the placeholder URL is used, exclude everything so nothing gets crawled.
         // When real URLs are set, no exclusion filter is applied.

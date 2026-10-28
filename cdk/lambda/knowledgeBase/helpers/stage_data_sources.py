@@ -9,8 +9,19 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 REGION = os.environ["REGION"]
+KB_BUCKET = os.environ["KNOWLEDGE_BASE_BUCKET_NAME"]
+
+# Presigned uploads land under QUARANTINE_PREFIX, which the Bedrock data source does not read.
+# An object enters the retrieval corpus only by being promoted to APPROVED_PREFIX after staging
+# has validated it (the data source is limited to this prefix).
+QUARANTINE_PREFIX = "quarantine/"
+APPROVED_PREFIX = "uploads/"
 
 s3_client = boto3.client("s3", region_name=REGION)
+
+
+class InvalidUploadError(ValueError):
+    pass
 
 
 def _response(event, status_code: int, body: dict):
@@ -56,6 +67,37 @@ def _validate_file_pair(source_type: str, file_name: str, metadata_file_name: st
 def _assert_s3_object_exists(bucket: str, key: str):
     """Verify that an uploaded file already exists in S3 before staging it"""
     s3_client.head_object(Bucket=bucket, Key=key)
+
+
+def _approved_key_for(bucket: str, key: str) -> str:
+    """The corpus key an uploaded object is promoted to; only presigned-upload keys qualify"""
+    if bucket != KB_BUCKET:
+        raise InvalidUploadError("Files must be in the knowledge base bucket")
+    if (
+        not isinstance(key, str)
+        or not key.startswith(QUARANTINE_PREFIX)
+        or key == QUARANTINE_PREFIX
+        or ".." in key.split("/")
+    ):
+        raise InvalidUploadError(f"Files must be uploaded with a presigned URL (key under {QUARANTINE_PREFIX})")
+    return APPROVED_PREFIX + key[len(QUARANTINE_PREFIX):]
+
+
+def _promote_upload(key: str, approved_key: str):
+    s3_client.copy_object(
+        Bucket=KB_BUCKET,
+        Key=approved_key,
+        CopySource={"Bucket": KB_BUCKET, "Key": key},
+    )
+
+
+def _discard_promoted(approved_keys):
+    """Remove copies made for a request that did not complete, so nothing unstaged is ingested"""
+    for approved_key in approved_keys:
+        try:
+            s3_client.delete_object(Bucket=KB_BUCKET, Key=approved_key)
+        except Exception as e:
+            logger.error("Failed to remove promoted object %s: %s", approved_key, e)
 
 
 def _existing_website_row_id(connection, *, name: str) -> str | None:
@@ -185,6 +227,7 @@ def stage_data_sources(event, body, connection, acting_user):
     source_type = body.get("type")
     created_by = acting_user["email"]
     created_by_user_id = acting_user["id"]
+    promoted_keys = []
 
     if source_type not in {"website", "csv", "markdown"}:
         return _response(event, 400, {"error": "type must be one of: website, csv, markdown"})
@@ -284,6 +327,12 @@ def stage_data_sources(event, body, connection, acting_user):
             return _response(event, 400, {"error": pair_error})
 
         try:
+            primary_approved_key = _approved_key_for(primary_s3_bucket, primary_s3_key)
+            metadata_approved_key = _approved_key_for(metadata_s3_bucket, metadata_s3_key)
+        except InvalidUploadError as e:
+            return _response(event, 400, {"error": str(e)})
+
+        try:
             _assert_s3_object_exists(primary_s3_bucket, primary_s3_key)
             _assert_s3_object_exists(metadata_s3_bucket, metadata_s3_key)
         except Exception as e:
@@ -291,7 +340,7 @@ def stage_data_sources(event, body, connection, acting_user):
             return _response(event, 400, {"error": "One or both uploaded files do not exist in S3"})
 
         existing_primary_id = _existing_file_row_id(
-            connection, s3_bucket=primary_s3_bucket, s3_key=primary_s3_key
+            connection, s3_bucket=primary_s3_bucket, s3_key=primary_approved_key
         )
         if existing_primary_id:
             return _response(
@@ -305,7 +354,7 @@ def stage_data_sources(event, body, connection, acting_user):
             )
 
         existing_json_id = _existing_file_row_id(
-            connection, s3_bucket=metadata_s3_bucket, s3_key=metadata_s3_key
+            connection, s3_bucket=metadata_s3_bucket, s3_key=metadata_approved_key
         )
         if existing_json_id:
             return _response(
@@ -317,6 +366,12 @@ def stage_data_sources(event, body, connection, acting_user):
                     "metadata_file_name": metadata_file_name,
                 },
             )
+
+        _promote_upload(primary_s3_key, primary_approved_key)
+        promoted_keys.append(primary_approved_key)
+        _promote_upload(metadata_s3_key, metadata_approved_key)
+        promoted_keys.append(metadata_approved_key)
+        primary_s3_key, metadata_s3_key = primary_approved_key, metadata_approved_key
 
         primary_data_source_metadata = {
             "source": "staged_s3_file",
@@ -395,5 +450,6 @@ def stage_data_sources(event, body, connection, acting_user):
 
     except Exception as e:
         connection.rollback()
+        _discard_promoted(promoted_keys)
         logger.error("Failed to stage data sources: %s", e, exc_info=True)
         return _response(event, 500, {"error": "Failed to stage data sources"})

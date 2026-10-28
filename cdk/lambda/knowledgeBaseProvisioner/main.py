@@ -18,6 +18,21 @@ def calculate_exponential_backoff(attempt, base=2, max_sleep=15):
     sleep_time *= (0.5 + random.random() / 2)
     return sleep_time
 
+DEFAULT_S3_INCLUSION_PREFIX = 'uploads/'
+
+
+def _s3_data_source_configuration(props, bucket_arn):
+    """Only objects under this prefix are ingested; uploads land elsewhere until staging promotes them"""
+    prefix = props.get('S3InclusionPrefix') or DEFAULT_S3_INCLUSION_PREFIX
+    return {
+        'type': 'S3',
+        's3Configuration': {
+            'bucketArn': bucket_arn,
+            'inclusionPrefixes': [prefix],
+        }
+    }
+
+
 def _create_kb_and_data_sources(props):
     name = props['Name']
     role_arn = props['RoleArn']
@@ -98,12 +113,7 @@ def _create_kb_and_data_sources(props):
         ds_response = bedrock_agent.create_data_source(
             knowledgeBaseId=kb_id,
             name=f"{name}-s3-source",
-            dataSourceConfiguration={
-                'type': 'S3',
-                's3Configuration': {
-                    'bucketArn': s3_bucket_arn
-                }
-            },
+            dataSourceConfiguration=_s3_data_source_configuration(props, s3_bucket_arn),
             vectorIngestionConfiguration={
                 'chunkingConfiguration': {
                     'chunkingStrategy': 'SEMANTIC',
@@ -169,6 +179,29 @@ def _create_kb_and_data_sources(props):
     }
 
 
+def _restrict_s3_data_source(kb_id, ds_id, props):
+    """Bring a data source created before the prefix restriction in line with the current scope"""
+    ds = bedrock_agent.get_data_source(knowledgeBaseId=kb_id, dataSourceId=ds_id)['dataSource']
+    wanted = _s3_data_source_configuration(props, props.get('S3BucketArn'))
+    current = ds.get('dataSourceConfiguration', {})
+    if current.get('s3Configuration', {}).get('inclusionPrefixes') == wanted['s3Configuration']['inclusionPrefixes']:
+        return
+
+    logger.info("Restricting S3 data source %s to prefix %s", ds_id, wanted['s3Configuration']['inclusionPrefixes'])
+    current_s3 = dict(current.get('s3Configuration', {}))
+    current_s3['inclusionPrefixes'] = wanted['s3Configuration']['inclusionPrefixes']
+    update = {
+        'knowledgeBaseId': kb_id,
+        'dataSourceId': ds_id,
+        'name': ds['name'],
+        'dataSourceConfiguration': {**current, 'type': 'S3', 's3Configuration': current_s3},
+    }
+    for optional in ('description', 'vectorIngestionConfiguration', 'dataDeletionPolicy'):
+        if ds.get(optional):
+            update[optional] = ds[optional]
+    bedrock_agent.update_data_source(**update)
+
+
 def _ensure_data_sources_for_kb(kb_id, props):
     name = props['Name']
     s3_ds_id = ''
@@ -183,17 +216,15 @@ def _ensure_data_sources_for_kb(kb_id, props):
         elif ds_name == f"{name}-web-source":
             web_ds_id = ds_id
 
+    if s3_ds_id and props.get('S3BucketArn'):
+        _restrict_s3_data_source(kb_id, s3_ds_id, props)
+
     if not s3_ds_id and props.get('S3BucketArn'):
         logger.info("S3 data source missing on update; creating it.")
         ds_response = bedrock_agent.create_data_source(
             knowledgeBaseId=kb_id,
             name=f"{name}-s3-source",
-            dataSourceConfiguration={
-                'type': 'S3',
-                's3Configuration': {
-                    'bucketArn': props.get('S3BucketArn')
-                }
-            },
+            dataSourceConfiguration=_s3_data_source_configuration(props, props.get('S3BucketArn')),
             vectorIngestionConfiguration={
                 'chunkingConfiguration': {
                     'chunkingStrategy': 'SEMANTIC',

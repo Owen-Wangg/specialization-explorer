@@ -361,7 +361,7 @@ paths:
                   example: my-kb-bucket
                 csv_s3_key:
                   type: string
-                  example: uploads/csv/1712345678_alumni_data_final.csv
+                  example: quarantine/csv/1712345678_alumni_data_final.csv
                 metadata_file_name:
                   type: string
                   example: alumni_data_final.csv.metadata.json
@@ -370,7 +370,7 @@ paths:
                   example: my-kb-bucket
                 metadata_s3_key:
                   type: string
-                  example: uploads/json/1712345678_alumni_data_final.csv.metadata.json
+                  example: quarantine/json/1712345678_alumni_data_final.csv.metadata.json
       responses:
         "200":
           description: Data source(s) staged successfully

@@ -664,8 +664,8 @@ Stage a new data source (website or CSV) for future syncing.
   "created_by": "admin@example.com",
   "csv_file_name": "data.csv",
   "csv_s3_bucket": "my-kb-bucket",
-  "csv_s3_key": "uploads/csv/1712345678_data.csv",
-  "metadata_s3_key": "uploads/json/1712345678_data.csv.metadata.json"
+  "csv_s3_key": "quarantine/csv/1712345678_data.csv",
+  "metadata_s3_key": "quarantine/json/1712345678_data.csv.metadata.json"
 }
 ```
 
@@ -744,7 +744,7 @@ Generate an S3 presigned URL for uploading a single knowledge base file.
 ```json
 {
   "presignedUrl": "https://s3.amazonaws.com/bucket/path?...",
-  "key": "uploads/csv/1712345678_data.csv",
+  "key": "quarantine/csv/1712345678_data.csv",
   "bucket": "my-kb-bucket"
 }
 ```
@@ -791,7 +791,7 @@ Generate presigned S3 upload URLs for multiple files in a single request. Use th
     {
       "file_name": "alumni.csv",
       "presigned_url": "https://s3.amazonaws.com/bucket/path?...",
-      "key": "uploads/csv/1712345678_alumni.csv",
+      "key": "quarantine/csv/1712345678_alumni.csv",
       "bucket": "my-kb-bucket"
     }
   ]
@@ -830,10 +830,10 @@ Stage multiple CSV/Markdown + metadata JSON file pairs in a single request. Desi
       "type": "csv",
       "primary_file_name": "alumni.csv",
       "primary_s3_bucket": "my-kb-bucket",
-      "primary_s3_key": "uploads/csv/1712345678_alumni.csv",
+      "primary_s3_key": "quarantine/csv/1712345678_alumni.csv",
       "metadata_file_name": "alumni.csv.metadata.json",
       "metadata_s3_bucket": "my-kb-bucket",
-      "metadata_s3_key": "uploads/json/1712345678_alumni.csv.metadata.json"
+      "metadata_s3_key": "quarantine/json/1712345678_alumni.csv.metadata.json"
     }
   ]
 }

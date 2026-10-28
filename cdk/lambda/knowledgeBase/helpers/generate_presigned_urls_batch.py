@@ -48,12 +48,12 @@ def _sanitize_file_name(file_name: str) -> str:
 def _infer_upload_prefix(file_name: str, content_type: str) -> str:
     lower = file_name.lower()
     if lower.endswith(".csv") or content_type == "text/csv":
-        return "uploads/csv"
+        return "quarantine/csv"
     if lower.endswith(".md") or lower.endswith(".markdown") or content_type == "text/markdown":
-        return "uploads/markdown"
+        return "quarantine/markdown"
     if lower.endswith(".json") or content_type in {"application/json", "text/json"}:
-        return "uploads/json"
-    return "uploads/files"
+        return "quarantine/json"
+    return "quarantine/files"
 
 
 def generate_presigned_urls_batch(event, body):
