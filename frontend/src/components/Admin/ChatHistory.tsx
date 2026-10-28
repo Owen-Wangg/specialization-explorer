@@ -8,6 +8,7 @@ import { Bot, User, MessageSquare, ChevronDown, ChevronRight, Clock, RefreshCw }
 import { AuthService } from "@/functions/authService";
 import { apiCache } from "@/functions/apiCache";
 import { cn } from "@/lib/utils";
+import { isSafeUrl } from "@/lib/safeUrl";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const CACHE_PREFIX = 'admin_chat_';
@@ -209,7 +210,8 @@ export default function ChatHistory() {
     };
 
     const formatSource = (source: any) => {
-        const uri = source?.uri || source?.url || source;
+        const rawUri = source?.uri || source?.url || source;
+        const uri = typeof rawUri === 'string' ? rawUri : '';
         const type = source?.type || (uri.includes('s3') ? 'S3' : 'WEB');
         const content = source?.content || "No content extracted";
 
@@ -217,7 +219,7 @@ export default function ChatHistory() {
             <div className="flex flex-col gap-1 w-full text-left">
                 <div className="flex items-center gap-1.5 break-all text-[11px] font-medium text-primary">
                     <span className="bg-gray-200 text-gray-700 px-1 py-0.5 rounded text-[9px] font-bold">{type}</span>
-                    <a href={uri} target="_blank" rel="noopener noreferrer" className="hover:underline" title={uri}>{uri}</a>
+                    <a href={uri && isSafeUrl(uri) ? uri : "#"} target="_blank" rel="noopener noreferrer" className="hover:underline" title={uri}>{uri}</a>
                 </div>
                 <div className="text-[11px] text-gray-500 italic pl-2 border-l-2 border-gray-200">
                     "{content}"
