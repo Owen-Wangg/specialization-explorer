@@ -1641,13 +1641,17 @@ export class ApiGatewayStack extends cdk.Stack {
       apiId: this.webSocketApi?.apiId,
       stageName: "prod",
       autoDeploy: true,
-      // WAF cannot be associated with WebSocket APIs, so cap request rates at the stage
+      // WAF cannot be associated with WebSocket APIs, so cap request rates at the stage.
+      // Execution logging stays off: the connect request carries the token in its query string.
       defaultRouteSettings: {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
+        loggingLevel: "OFF",
+        dataTraceEnabled: false,
       },
       accessLogSettings: {
         destinationArn: wsAccessLogGroup.logGroupArn,
+        // Do not add request URL or query string fields: the connect token is in the query string
         format: JSON.stringify({
           requestId: "$context.requestId",
           requestTime: "$context.requestTime",
