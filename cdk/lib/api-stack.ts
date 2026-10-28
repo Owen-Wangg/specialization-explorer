@@ -385,7 +385,7 @@ export class ApiGatewayStack extends cdk.Stack {
       },
       rules: [
         // Rule 1: AWS Managed Common Rule Set (SQL injection, XSS, etc.)
-        // SizeRestrictions_BODY is excluded for batch admin endpoints which send large JSON payloads
+        // SizeRestrictions_BODY is counted only, since batch admin endpoints send large JSON payloads
         {
           name: "AWS-AWSManagedRulesCommonRuleSet",
           priority: 1,
@@ -399,32 +399,6 @@ export class ApiGatewayStack extends cdk.Stack {
                   actionToUse: { count: {} },
                 },
               ],
-              scopeDownStatement: {
-                notStatement: {
-                  statement: {
-                    orStatement: {
-                      statements: [
-                        {
-                          byteMatchStatement: {
-                            searchString: "/admin/generate-presigned-urls/batch",
-                            fieldToMatch: { uriPath: {} },
-                            textTransformations: [{ priority: 0, type: "NONE" }],
-                            positionalConstraint: "ENDS_WITH",
-                          },
-                        },
-                        {
-                          byteMatchStatement: {
-                            searchString: "/admin/data_sources/batch",
-                            fieldToMatch: { uriPath: {} },
-                            textTransformations: [{ priority: 0, type: "NONE" }],
-                            positionalConstraint: "ENDS_WITH",
-                          },
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
             },
           },
           overrideAction: { none: {} },
@@ -435,90 +409,30 @@ export class ApiGatewayStack extends cdk.Stack {
           },
         },
 
-        // Rule 2: Strict limit for unauthenticated requests (100 req/5min per IP)
+        // Rule 2: Per-IP rate limit for all requests (2000 req/5min)
         {
-          name: "LimitUnauthenticatedRequests",
+          name: "LimitRequestsPerIp",
           priority: 2,
           action: {
             block: {},
           },
           statement: {
             rateBasedStatement: {
-              limit: 100, // Reduced from 1000 to 100 for anonymous users
+              limit: 2000,
               aggregateKeyType: "IP",
-              scopeDownStatement: {
-                // Only apply to requests WITHOUT Authorization header
-                notStatement: {
-                  statement: {
-                    byteMatchStatement: {
-                      searchString: "Bearer",
-                      fieldToMatch: {
-                        singleHeader: {
-                          name: "authorization",
-                        },
-                      },
-                      textTransformations: [
-                        {
-                          priority: 0,
-                          type: "NONE",
-                        },
-                      ],
-                      positionalConstraint: "CONTAINS",
-                    },
-                  },
-                },
-              },
             },
           },
           visibilityConfig: {
             sampledRequestsEnabled: true,
             cloudWatchMetricsEnabled: true,
-            metricName: "LimitUnauthenticatedRequests",
+            metricName: "LimitRequestsPerIp",
           },
         },
 
-        // Rule 3: More lenient for authenticated requests (2000 req/5min per IP)
-        {
-          name: "LimitAuthenticatedRequests",
-          priority: 3,
-          action: {
-            block: {},
-          },
-          statement: {
-            rateBasedStatement: {
-              limit: 2000, // Increased from 1000 to 2000 for authenticated users
-              aggregateKeyType: "IP",
-              scopeDownStatement: {
-                // Only apply to requests WITH Authorization header
-                byteMatchStatement: {
-                  searchString: "Bearer",
-                  fieldToMatch: {
-                    singleHeader: {
-                      name: "authorization",
-                    },
-                  },
-                  textTransformations: [
-                    {
-                      priority: 0,
-                      type: "NONE",
-                    },
-                  ],
-                  positionalConstraint: "CONTAINS",
-                },
-              },
-            },
-          },
-          visibilityConfig: {
-            sampledRequestsEnabled: true,
-            cloudWatchMetricsEnabled: true,
-            metricName: "LimitAuthenticatedRequests",
-          },
-        },
-
-        // Rule 4: Moderate limit for expensive AI endpoints (500 req/5min per IP)
+        // Rule 3: Moderate limit for expensive AI endpoints (500 req/5min per IP)
         {
           name: "LimitExpensiveEndpoints",
-          priority: 4,
+          priority: 3,
           action: {
             block: {},
           },
@@ -1700,6 +1614,11 @@ export class ApiGatewayStack extends cdk.Stack {
       apiId: this.webSocketApi?.apiId,
       stageName: "prod",
       autoDeploy: true,
+      // WAF cannot be associated with WebSocket APIs, so cap request rates at the stage
+      defaultRouteSettings: {
+        throttlingRateLimit: 100,
+        throttlingBurstLimit: 200,
+      },
       accessLogSettings: {
         destinationArn: wsAccessLogGroup.logGroupArn,
         format: JSON.stringify({
