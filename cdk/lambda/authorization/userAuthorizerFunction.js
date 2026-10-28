@@ -83,10 +83,8 @@ exports.handler = async (event) => {
       : ANONYMOUS_RESOURCES.map((r) => `${apiGatewayArnPrefix}/${r}`);
 
     const policy = generatePolicy(decoded.sub || "anonymous", "Allow", resources);
-    policy.context = {
-      ...decoded,
-      ...(decoded.sub && { userId: decoded.sub }),
-    };
+    // Only the verified identity is passed on; other token claims are not trusted downstream
+    policy.context = decoded.sub ? { userId: decoded.sub } : {};
     return policy;
   } catch (err) {
     console.error("Authorization error:", err.message);
