@@ -753,9 +753,11 @@ export class ApiGatewayStack extends cdk.Stack {
       }
     );
 
-    adminAuthorizationFunction.grantInvoke(
-      new iam.ServicePrincipal("apigateway.amazonaws.com")
-    );
+    adminAuthorizationFunction.addPermission("AllowApiGatewayInvoke", {
+      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+      action: "lambda:InvokeFunction",
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${this.api.restApiId}/authorizers/*`,
+    });
 
     new cloudwatch.Alarm(this, 'AdminAuthorizerConcurrencyAlarm', {
       metric: adminAuthorizationFunction.metric('ConcurrentExecutions', { statistic: cloudwatch.Stats.MAXIMUM }),
@@ -789,9 +791,11 @@ export class ApiGatewayStack extends cdk.Stack {
       }
     );
     jwtSecret.grantRead(userAuthFunction);
-    userAuthFunction.grantInvoke(
-      new iam.ServicePrincipal("apigateway.amazonaws.com")
-    );
+    userAuthFunction.addPermission("AllowApiGatewayInvoke", {
+      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+      action: "lambda:InvokeFunction",
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${this.api.restApiId}/authorizers/*`,
+    });
 
     new cloudwatch.Alarm(this, 'UserAuthorizerConcurrencyAlarm', {
       metric: userAuthFunction.metric('ConcurrentExecutions', { statistic: cloudwatch.Stats.MAXIMUM }),
@@ -830,9 +834,11 @@ export class ApiGatewayStack extends cdk.Stack {
     jwtSecret.grantRead(publicTokenLambda);
 
     // Add the permission to the Lambda function's policy to allow API Gateway access
-    publicTokenLambda.grantInvoke(
-      new iam.ServicePrincipal("apigateway.amazonaws.com")
-    );
+    publicTokenLambda.addPermission("AllowApiGatewayInvoke", {
+      principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+      action: "lambda:InvokeFunction",
+      sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${this.api.restApiId}/*/GET/user/publicToken`,
+    });
 
     new cloudwatch.Alarm(this, 'PublicTokenConcurrencyAlarm', {
       metric: publicTokenLambda.metric('ConcurrentExecutions', { statistic: cloudwatch.Stats.MAXIMUM }),
