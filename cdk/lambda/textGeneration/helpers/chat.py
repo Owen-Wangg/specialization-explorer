@@ -66,7 +66,6 @@ Output ONLY the search query. Do not include explanations, preambles, or quotes.
             }
         )
         rewritten = response["output"]["message"]["content"][0]["text"].strip()
-        logger.info(f"Query rewrite: '{raw_query}' -> '{rewritten}'")
         return rewritten if rewritten else raw_query
     except Exception as e:
         logger.warning(f"Query rewrite failed, using raw query: {e}")
