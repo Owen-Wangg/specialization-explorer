@@ -5,9 +5,51 @@ const {
 const jwt = require("jsonwebtoken");
 
 const secretsManager = new SecretsManagerClient();
-let cachedSecret;
+let cachedSecrets;
 let cacheExpiry = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Keys are re-read this often, so a rotation reaches warm containers promptly
+const SECRET_CACHE_TTL_MS = 5 * 60 * 1000;
+// A token lives 15 minutes and keys are cached for up to 5, so the key that was current
+// before a rotation is honoured only this long after it. Rotating again retires a key.
+const PREVIOUS_KEY_GRACE_MS = 25 * 60 * 1000;
+
+const loadSigningSecrets = async () => {
+  if (cachedSecrets && Date.now() < cacheExpiry) return cachedSecrets;
+
+  const current = await secretsManager.send(
+    new GetSecretValueCommand({ SecretId: process.env.JWT_SECRET, VersionStage: "AWSCURRENT" })
+  );
+  const secrets = [JSON.parse(current.SecretString).jwtSecret];
+
+  if (current.CreatedDate && Date.now() - current.CreatedDate.getTime() < PREVIOUS_KEY_GRACE_MS) {
+    try {
+      const previous = await secretsManager.send(
+        new GetSecretValueCommand({ SecretId: process.env.JWT_SECRET, VersionStage: "AWSPREVIOUS" })
+      );
+      secrets.push(JSON.parse(previous.SecretString).jwtSecret);
+    } catch (error) {
+      if (error.name !== "ResourceNotFoundException") throw error;
+    }
+  }
+
+  cachedSecrets = secrets;
+  cacheExpiry = Date.now() + SECRET_CACHE_TTL_MS;
+  return secrets;
+};
+
+const verifyToken = (token, secrets, options) => {
+  let signatureError;
+  for (const secret of secrets) {
+    try {
+      return jwt.verify(token, secret, options);
+    } catch (error) {
+      if (error.message !== "invalid signature") throw error;
+      signatureError = error;
+    }
+  }
+  throw signatureError;
+};
 
 const ANONYMOUS_RESOURCES = [
   "POST/user",
@@ -24,15 +66,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    if (!cachedSecret || Date.now() > cacheExpiry) {
-      const response = await secretsManager.send(
-        new GetSecretValueCommand({ SecretId: process.env.JWT_SECRET })
-      );
-      cachedSecret = JSON.parse(response.SecretString).jwtSecret;
-      cacheExpiry = Date.now() + CACHE_TTL_MS;
-    }
-
-    const decoded = jwt.verify(token, cachedSecret, {
+    const decoded = verifyToken(token, await loadSigningSecrets(), {
       algorithms: ["HS256"],
       issuer: "specex-public-token",
       audience: "specex-api",

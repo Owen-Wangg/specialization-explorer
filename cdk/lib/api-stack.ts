@@ -721,6 +721,39 @@ export class ApiGatewayStack extends cdk.Stack {
       },
     });
 
+    // Rotate the token signing key on the same cadence as the database credentials.
+    // Verifiers accept the previous key only briefly after a rotation (see the authorizers).
+    const jwtSecretRotationFunction = new lambda.Function(this, `${id}-JwtSecretRotationFunction`, {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("lambda/jwtSecretRotation"),
+      timeout: Duration.seconds(30),
+      memorySize: 128,
+    });
+    jwtSecretRotationFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:PutSecretValue",
+          "secretsmanager:UpdateSecretVersionStage",
+        ],
+        resources: [jwtSecret.secretArn],
+      })
+    );
+    jwtSecretRotationFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ["secretsmanager:GetRandomPassword"],
+        resources: ["*"],
+      })
+    );
+    jwtSecret.addRotationSchedule(`${id}-JwtSecretRotation`, {
+      rotationLambda: jwtSecretRotationFunction,
+      automaticallyAfter: Duration.days(30),
+    });
+
     const adminAuthorizationFunction = new lambda.Function(
       this,
       `${id}-admin-authorization-api-gateway`,
@@ -1646,6 +1679,7 @@ export class ApiGatewayStack extends cdk.Stack {
       lambdaSystemMessagesFunction,
       lambdaChatSessionFunction,
       lambdaAdminFunction,
+      jwtSecretRotationFunction,
       connectFunction,
       wsAuthorizerFunction,
       disconnectFunction,

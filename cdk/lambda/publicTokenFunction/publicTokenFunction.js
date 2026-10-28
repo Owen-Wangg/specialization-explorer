@@ -80,7 +80,7 @@ exports.handler = async (event) => {
       {
         ...(subject && { sub: subject }),
         role: "user",
-        jti: randomUUID(),  // Unique token ID for tracking/revocation
+        jti: randomUUID(),  // Unique token ID for tracing a token through the logs
         iat: Math.floor(Date.now() / 1000)  // Explicit issued-at timestamp
       },
       cachedSecret,
