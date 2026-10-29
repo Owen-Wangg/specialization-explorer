@@ -1,4 +1,5 @@
 import logging
+import time
 import boto3
 import os
 from helpers.crud import fetch_system_config
@@ -6,7 +7,8 @@ from helpers.crud import fetch_system_config
 logger = logging.getLogger(__name__)
 
 # CONFIGURATION CACHE
-_CONFIG_LOADED = False
+_CONFIG_LOADED_AT = None
+CONFIG_REFRESH_SECONDS = 60
 
 # ------------------------------------------------------------------
 # DEFAULT VALUES (Fallbacks)
@@ -84,9 +86,10 @@ ONLY SUGGEST SPECIALIZATIONS FROM THIS LIST {",".join(SPEC_LIST)}
 def load_config(db_connection):
     """
     Loads configuration from DB and updates module globals.
-    Uses caching to avoid DB hits on every request if container is warm.
+    Admin-managed values are re-read from the DB once CONFIG_REFRESH_SECONDS have passed,
+    so changes reach warm containers without a DB hit on every request.
     """
-    global _CONFIG_LOADED
+    global _CONFIG_LOADED_AT
     global MAX_MESSAGES_PER_DAY, MIN_EXCHANGES_BEFORE_SUGGEST, MAX_CHARACTERS_PER_USER_MESSAGE, MAX_CHARACTERS_PER_AI_MESSAGE, TEMPERATURE, TOP_P, SUPPORT_SCORE_THRESHOLD, SCOPE_ALIGNMENT_SCORE_THRESHOLD, GROUNDED_THRESHOLD, PARTIALLY_GROUNDED_THRESHOLD
     global GUARDRAILS, ROLE, CHECKLIST, INSTRUCTIONS, DETECTIVE_PHASE_PROMPT, SUGGESTION_PHASE_PROMPT, INITIAL_PROMPT
     global KB_ID
@@ -95,7 +98,7 @@ def load_config(db_connection):
     global HAIKU_ARN, SONNET_ARN
     global GUARDRAIL_ID, GUARDRAIL_VERSION
 
-    if _CONFIG_LOADED:
+    if _CONFIG_LOADED_AT is not None and time.monotonic() - _CONFIG_LOADED_AT < CONFIG_REFRESH_SECONDS:
         return
 
     logger.info("Loading system config from DB and Secrets Manager...")
@@ -172,6 +175,6 @@ def load_config(db_connection):
         ONLY SUGGEST SPECIALIZATIONS FROM THIS LIST: {SPEC_LIST}
         """
 
-    _CONFIG_LOADED = True
+    _CONFIG_LOADED_AT = time.monotonic()
 
     logger.info("System config loaded successfully.")

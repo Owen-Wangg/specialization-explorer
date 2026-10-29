@@ -22,7 +22,7 @@ def _rewrite_query_for_retrieval(
     raw_query: str,
     chat_history: List[Dict[str, Any]],
     llm_region: str,
-    haiku_model_arn: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    haiku_model_arn: Optional[str] = None
 ) -> str:
     """
     Uses a fast, low-cost LLM call to rewrite a conversational user query into a
@@ -58,16 +58,14 @@ Output ONLY the search query. Do not include explanations, preambles, or quotes.
     try:
         bedrock_runtime = boto3.client("bedrock-runtime", region_name=llm_region)
         response = bedrock_runtime.converse(
-            modelId=haiku_model_arn,
+            modelId=haiku_model_arn or config.HAIKU_ARN,
             messages=[{"role": "user", "content": [{"text": user_message}]}],
             system=[{"text": rewrite_system_prompt}],
             inferenceConfig={
-                "maxTokens": 50,  
-                "temperature": 0.0
+                "maxTokens": 50
             }
         )
         rewritten = response["output"]["message"]["content"][0]["text"].strip()
-        logger.info(f"Query rewrite: '{raw_query}' -> '{rewritten}'")
         return rewritten if rewritten else raw_query
     except Exception as e:
         logger.warning(f"Query rewrite failed, using raw query: {e}")
@@ -207,6 +205,16 @@ def _save_ai_response(
         db_connection.rollback()
         logger.error(f"Failed to save AI response: {e}")
 
+# Fixed opening prompt sent by the app when a chat starts. Only a query that matches
+# it exactly is treated as an intro message and skips the input guardrail.
+INTRO_PROMPT = """Hello! Please act as the Specialization Explorer.
+1. Introduce yourself briefly.
+2. Ask the student these 1 of these starter questions, and use some variation of these in the later responses to complete the checklist:
+   - What are your academic interests?
+   - Which course or department do you like most at UBC Science?
+   - Do you want to pursue research or enter industry after graduation?
+3. Be friendly and inviting."""
+
 def get_response(
     query: str,
     knowledge_base_id: str,
@@ -223,20 +231,25 @@ def get_response(
     usage_info = {}
     is_under_limit = True
 
+    # The flag is client-supplied, so it only counts for the fixed intro prompt
+    is_intro_message = is_intro_message and query == INTRO_PROMPT
+
     try:
-        if user_id:
-            is_under_limit, usage_info = check_limit(user_id, db_connection)
-            if not is_under_limit:
-                return {
-                    "response": "Daily message limit exceeded. Please try again tomorrow.",
-                    "sources_used": [],
-                    "sessionId": chat_session_id,
-                    "is_first_message": False,
-                    "message_limit_exceeded": True,
-                    "message_usage": usage_info,
-                    "warning": None,
-                    "intervention": None
-                }
+        if not user_id:
+            raise ValueError("An authenticated user is required.")
+
+        is_under_limit, usage_info = check_limit(user_id, db_connection)
+        if not is_under_limit:
+            return {
+                "response": "Daily message limit exceeded. Please try again tomorrow.",
+                "sources_used": [],
+                "sessionId": chat_session_id,
+                "is_first_message": False,
+                "message_limit_exceeded": True,
+                "message_usage": usage_info,
+                "warning": None,
+                "intervention": None
+            }
 
         if not is_intro_message:
             try:
@@ -287,7 +300,7 @@ def get_response(
             save_user_message=save_user_message
         )
 
-        if user_id and save_user_message:
+        if save_user_message:
             usage_info = record_message_sent(user_id, db_connection)
 
     except ValueError as e:
@@ -320,14 +333,15 @@ def get_response(
                 {"text": dynamic_prompt}
             ],
             "inferenceConfig": {
-                "maxTokens": config.MAX_TOKENS,
-                "temperature": config.TEMPERATURE
+                "maxTokens": config.MAX_TOKENS
             }
         }
 
     if model_arn == config.SONNET_ARN:
+        # Sonnet 5 turns thinking off with "between_tools"; earlier versions use "disabled"
+        thinking_off = "between_tools" if "claude-sonnet-5" in model_arn else "disabled"
         request_payload["additionalModelRequestFields"] = {
-            "thinking" : {"type": "disabled"},
+            "thinking" : {"type": thinking_off},
             "output_config": {"effort": "low"}
         }
 

@@ -108,14 +108,14 @@ The ECR Image Waiter custom resource:
 
 ```bash
 # 1. Deploy CICD stack (creates repos and pipeline)
-cdk deploy specEx-CICD
+npx cdk deploy specEx-CICD
 
 # 2. Trigger the pipeline (or wait for automatic webhook trigger)
 # The pipeline will build and push Docker images
 
 # 3. Deploy API stack
 # The custom resource will wait for images, then create Lambda functions
-cdk deploy specEx-Api
+npx cdk deploy specEx-Api
 ```
 
 ### Subsequent Deployments

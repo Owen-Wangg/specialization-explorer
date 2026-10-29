@@ -14,10 +14,8 @@ import { confirmSignIn } from "aws-amplify/auth";
 import { Eye, EyeOff } from "lucide-react";
 import { AuthService } from "@/functions/authService";
 import Footer from "@/components/Footer";
-import { useUser } from "@/providers/user";
 
 export default function AdminLogin() {
-  const { userId } = useUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -49,9 +47,7 @@ export default function AdminLogin() {
     checkAuthStatus();
   }, [navigate]);
 
-  const updateAdminUser = async (email: string) => {
-    if (!userId) throw new Error("Missing userId");
-
+  const updateAdminUser = async () => {
     const session = await AuthService.getAuthSession(true);
     const token = session.tokens.idToken;
 
@@ -59,13 +55,7 @@ export default function AdminLogin() {
       method: "POST",
       headers: {
         Authorization: token,
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        user_id: userId,
-        email,
-        role: "admin",
-      }),
     });
 
     if (!res.ok) {
@@ -90,7 +80,7 @@ export default function AdminLogin() {
       }
 
       if (result.isSignedIn) {
-        await updateAdminUser(email);
+        await updateAdminUser();
         navigate(from, { replace: true });
       } else if (
         result.nextStep?.signInStep ===

@@ -25,22 +25,6 @@ def _response(event, status_code: int, body: dict):
     }
 
 
-def _get_user_id_by_email(connection, email: str) -> str | None:
-    """Look up the internal user ID for the admin email that initiated the sync"""
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE email = %s
-            LIMIT 1
-            """,
-            (email,),
-        )
-        row = cursor.fetchone()
-        return str(row[0]) if row else None
-
-
 def _promote_pending_to_queued(connection, *, sync_session_id: str) -> int:
     """
     Promote the latest pending ingestion run for each data source to queued.
@@ -75,14 +59,15 @@ def _promote_pending_to_queued(connection, *, sync_session_id: str) -> int:
         return cursor.rowcount
 
 
-def start_ingestion_job(event, body, connection, kb_id):
+def start_ingestion_job(event, body, connection, kb_id, acting_user):
     """
     Start a new sync session for staged data sources.
 
     This method:
     - validates the requesting admin
     - creates a new sync_session_id
-    - promotes pending ingestion runs to queued
+    - promotes pending ingestion runs to queued (runs already queued by an
+      earlier failed sync are retried even when nothing new is pending)
     - attempts to start the S3 batch first
     - if no S3 batch is eligible, attempts to start the website batch
     - returns the first phase that was successfully started
@@ -91,13 +76,7 @@ def start_ingestion_job(event, body, connection, kb_id):
     - process_s3_batch(...)
     - process_website_batch(...)
     """
-    created_by = body.get("created_by")
-    if not created_by:
-        return _response(event, 400, {"error": "Missing created_by"})
-
-    created_by_user_id = _get_user_id_by_email(connection, created_by)
-    if not created_by_user_id:
-        return _response(event, 400, {"error": "Admin user not found in database"})
+    created_by_user_id = acting_user["id"]
 
     sync_session_id = uuid4().hex
 
@@ -109,14 +88,9 @@ def start_ingestion_job(event, body, connection, kb_id):
         connection.commit()
 
         if queued_count == 0:
-            return _response(
-                event,
-                409,
-                {
-                    "error": "No pending data sources found to queue.",
-                    "sync_session_id": sync_session_id,
-                },
-            )
+            # Nothing new to promote, but runs left queued by an earlier sync whose
+            # batch failed to start (e.g. a Bedrock error) must still be retried.
+            logger.info("No pending runs to promote; retrying already-queued runs")
 
         s3_started = process_s3_batch(
             event=event,
@@ -160,11 +134,16 @@ def start_ingestion_job(event, body, connection, kb_id):
                 },
             )
 
+        if queued_count == 0:
+            error = "No pending or queued data sources found to sync."
+        else:
+            error = "Pending data sources were queued, but no eligible batch could be started."
+
         return _response(
             event,
             409,
             {
-                "error": "Pending data sources were queued, but no eligible batch could be started.",
+                "error": error,
                 "sync_session_id": sync_session_id,
                 "queued_count": queued_count,
                 "s3_result": s3_started,

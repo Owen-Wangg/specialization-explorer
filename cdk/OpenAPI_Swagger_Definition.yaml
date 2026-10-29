@@ -20,9 +20,9 @@ x-amazon-apigateway-gateway-responses:
   UNAUTHORIZED:
     statusCode: "401"
     responseParameters:
-      gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
-      gatewayresponse.header.Access-Control-Allow-Methods: "'*'"
-      gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+      gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      gatewayresponse.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE'"
+      gatewayresponse.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
     responseTemplates:
       application/json: |
         {"message":$context.error.messageString}
@@ -46,8 +46,8 @@ x-common-options: &commonOptions
           statusCode: "200"
           responseParameters:
             method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-            method.response.header.Access-Control-Allow-Methods: "'*'"
-            method.response.header.Access-Control-Allow-Origin: "'*'"
+            method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE'"
+            method.response.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
           responseTemplates:
             application/json: |
               {}
@@ -57,35 +57,17 @@ paths:
     <<: *commonOptions
     post:
       tags: [Admin]
-      summary: Update an existing user's email and role (update-only)
+      summary: Record the calling administrator's own verified e-mail as an admin user
       operationId: admin_update_user
       security:
         - adminAuthorizer: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [user_id, email, role]
-              properties:
-                user_id:
-                  type: string
-                  description: UUID of the user row to update
-                email:
-                  type: string
-                role:
-                  type: string
-                  enum: [student, admin]
       responses:
         "200":
-          description: Updated user
-        "400":
-          description: Bad Request
+          description: The caller's user record
         "401":
           description: Unauthorized
-        "404":
-          description: User not found
+        "403":
+          description: Admin access required
       x-amazon-apigateway-integration:
         uri:
           Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${adminFunction.Arn}/invocations
@@ -379,7 +361,7 @@ paths:
                   example: my-kb-bucket
                 csv_s3_key:
                   type: string
-                  example: uploads/csv/1712345678_alumni_data_final.csv
+                  example: quarantine/csv/1712345678_alumni_data_final.csv
                 metadata_file_name:
                   type: string
                   example: alumni_data_final.csv.metadata.json
@@ -388,7 +370,7 @@ paths:
                   example: my-kb-bucket
                 metadata_s3_key:
                   type: string
-                  example: uploads/json/1712345678_alumni_data_final.csv.metadata.json
+                  example: quarantine/json/1712345678_alumni_data_final.csv.metadata.json
       responses:
         "200":
           description: Data source(s) staged successfully
@@ -1346,13 +1328,6 @@ paths:
             type: string
             enum:
               - disclaimer
-              - guardrails
-              - system_role
-              - system_checklist
-              - system_instructions
-              - initial_prompt
-              - detective_phase_prompt
-              - suggestion_phase_prompt
               - welcome_message
       responses:
         "200":
@@ -1437,13 +1412,6 @@ paths:
           schema:
             type: string
             format: uuid
-        - name: user_id
-          in: query
-          required: true
-          description: User UUID used to verify ownership when renaming
-          schema:
-            type: string
-            format: uuid
       requestBody:
         required: true
         content:
@@ -1487,13 +1455,6 @@ paths:
           in: path
           required: true
           description: Chat session UUID
-          schema:
-            type: string
-            format: uuid
-        - name: user_id
-          in: query
-          required: true
-          description: User UUID used to verify ownership when deleting
           schema:
             type: string
             format: uuid
@@ -1545,9 +1506,6 @@ paths:
               properties:
                 query:
                   type: string
-                user_id:
-                  type: string
-                  format: uuid
       responses:
         "200":
           description: Generated text response
@@ -1595,7 +1553,7 @@ paths:
             responseParameters:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
               method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
             responseTemplates:
               application/json: |
                 {}
@@ -1800,6 +1758,59 @@ paths:
         httpMethod: POST
         type: aws_proxy
 
+  /user/{user_id}/key:
+    <<: *commonOptions
+    post:
+      tags:
+        - User
+      summary: Replace the user's key, invalidating the previous one
+      operationId: rotate_user_key
+      security:
+        - userAuthorizer: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentKey
+              properties:
+                currentKey:
+                  type: string
+                  description: The user's current key, required in addition to the token
+      responses:
+        "200":
+          description: New key issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userKey:
+                    type: string
+        "401":
+          description: Unauthorized
+        "403":
+          description: Access denied
+        "404":
+          description: User not found
+        "500":
+          description: Internal Server Error
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${userFunction.Arn}/invocations
+        passthroughBehavior: "when_no_match"
+        httpMethod: POST
+        type: aws_proxy
+
   /user/{user_id}/chat_sessions/{chat_session_id}/chat_history:
     <<: *commonOptions
     get:
@@ -1957,13 +1968,7 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - user_id
               properties:
-                user_id:
-                  type: string
-                  format: uuid
-                  description: User UUID (guest/student user)
                 title:
                   type: string
                   nullable: true
@@ -2033,7 +2038,7 @@ paths:
             responseParameters:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
               method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Origin: stageVariables.allowedOrigin
             responseTemplates:
               application/json: |
                 {}

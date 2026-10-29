@@ -180,21 +180,24 @@ export class KnowledgeBaseStack extends Stack {
     });
 
     // Use account and region for uniqueness (see https://aws.amazon.com/blogs/aws/introducing-account-regional-namespaces-for-amazon-s3-general-purpose-buckets/)
-    // The "*" origin is a placeholder, it is updated by the amplify-stack with the amplify-url to restrict request only to our application
+    // CORS is configured by the amplify-stack with the amplify-url to restrict requests only to our application
     this.knowledgeBaseBucket = new s3.Bucket(this, "KnowledgeBaseBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       enforceSSL: true,
       versioned: true,
+      lifecycleRules: [
+        {
+          // Uploads that were never staged are not part of the corpus; clear them out
+          id: "ExpireUnstagedUploads",
+          prefix: "quarantine/",
+          expiration: cdk.Duration.days(7),
+          noncurrentVersionExpiration: cdk.Duration.days(7),
+        },
+      ],
       serverAccessLogsBucket: accessLogsBucket,
       serverAccessLogsPrefix: "kb-bucket-access-logs/",
-      cors: [{
-        allowedHeaders: ["*"],
-        allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.DELETE],
-        allowedOrigins: ["*"], 
-        exposedHeaders: ["ETag"],
-      }],
     });
 
     // Access the underlying L1 construct for enabling account regional space
@@ -355,6 +358,7 @@ export class KnowledgeBaseStack extends Stack {
       effect: iam.Effect.ALLOW,
       actions: [
         "bedrock:GetKnowledgeBase",
+        "bedrock:GetDataSource",
         "bedrock:UpdateKnowledgeBase",
         "bedrock:DeleteKnowledgeBase",
         "bedrock:CreateDataSource",
@@ -419,6 +423,8 @@ export class KnowledgeBaseStack extends Stack {
         MetadataField: METADATA_FIELD_NAME,
         Description: "Knowledge base for RAG application with S3 and web-crawled content",
         S3BucketArn: this.knowledgeBaseBucket.bucketArn,
+        // Bedrock reads only this prefix; presigned uploads land under quarantine/ until staging promotes them
+        S3InclusionPrefix: "uploads/",
         WebCrawlerUrls: webCrawlerUrls,
         // If the placeholder URL is used, exclude everything so nothing gets crawled.
         // When real URLs are set, no exclusion filter is applied.

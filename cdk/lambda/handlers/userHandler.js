@@ -6,9 +6,30 @@ const {
 } = require("@aws-sdk/client-secrets-manager");
 const crypto = require("crypto");
 const { validateUUID } = require("./utils/validation.js");
+const { auditLog } = require("./utils/audit.js");
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_DISPLAY_NAME_LENGTH = 100;
 
 let sqlConnection;
 const secretsManager = new SecretsManagerClient();
+
+// Per-user credential exchanged at /user/publicToken for a token bound to this user.
+// Only the hash is stored (users.user_key_hash); must stay in sync with publicTokenFunction.js.
+const generateUserKey = () => {
+  const userKey = crypto.randomBytes(32).toString("hex");
+  const userKeyHash = crypto.createHash("sha256").update(userKey).digest("hex");
+  return { userKey, userKeyHash };
+};
+
+// Timing-safe comparison of a presented key against users.user_key_hash; a missing hash never matches
+const matchesKeyHash = (userKey, storedHash) => {
+  if (!storedHash) return false;
+  const providedHash = crypto.createHash("sha256").update(userKey).digest();
+  const storedBuf = Buffer.from(storedHash, "hex");
+  return storedBuf.length === providedHash.length && crypto.timingSafeEqual(providedHash, storedBuf);
+};
 
 const initConnection = async () => {
   if (!sqlConnection) {
@@ -25,7 +46,7 @@ const initConnection = async () => {
         username: credentials.username,
         password: credentials.password,
         database: credentials.dbname,
-        ssl: { rejectUnauthorized: false },
+        ssl: { rejectUnauthorized: true },
       };
 
       sqlConnection = postgres(connectionConfig);
@@ -52,6 +73,12 @@ const parseBody = (body) => {
   }
 };
 
+// The caller's identity, taken from the verified token. Anonymous tokens have none.
+const getAuthenticatedUserId = (event) => {
+  const userId = event.requestContext?.authorizer?.userId;
+  return validateUUID(userId).valid ? userId.toLowerCase() : null;
+};
+
 const handleError = (error, response) => {
   response.statusCode = 500;
   console.error("Internal server error:", error);
@@ -75,30 +102,63 @@ exports.handler = async (event) => {
 
       case "POST /user": {
         const body = parseBody(event.body);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          response.statusCode = 400;
+          response.body = JSON.stringify({ error: "Request body must be a JSON object" });
+          break;
+        }
 
         // Default role is student
         const role = "student";
         const userId = crypto.randomUUID();
-        const email = body.email || null;
-        const displayName = body.display_name || body.displayName || null;
-        const metadata = body.metadata || {};
+
+        // Emails given by anonymous callers are unverified, so they are kept as a contact address
+        // in metadata.contact_email and never written to users.email, which links a row to a
+        // verified Cognito identity at sign-up. Responses report whichever of the two is set.
+        let contactEmail = null;
+        if (body.email !== undefined && body.email !== null && body.email !== "") {
+          const candidate = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+          if (candidate.length > MAX_EMAIL_LENGTH || !EMAIL_REGEX.test(candidate)) {
+            response.statusCode = 400;
+            response.body = JSON.stringify({ error: "Invalid email format" });
+            break;
+          }
+          contactEmail = candidate;
+        }
+
+        let displayName = null;
+        const rawDisplayName = body.display_name ?? body.displayName;
+        if (rawDisplayName !== undefined && rawDisplayName !== null && rawDisplayName !== "") {
+          displayName = typeof rawDisplayName === "string" ? rawDisplayName.trim() : "";
+          if (!displayName || displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+            response.statusCode = 400;
+            response.body = JSON.stringify({
+              error: `display_name must be a non-empty string of at most ${MAX_DISPLAY_NAME_LENGTH} characters`,
+            });
+            break;
+          }
+        }
+
+        // Anonymous callers cannot set metadata; the only key stored is the server-built contact_email
+        const metadata = contactEmail ? { contact_email: contactEmail } : {};
 
         const now = new Date();
+        const { userKey, userKeyHash } = generateUserKey();
 
         // Create a new row (email can be null)
         const result = await sqlConnection`
           INSERT INTO users (
             id, email, display_name, role,
             created_at, last_seen_at,
-            metadata
+            metadata, user_key_hash
           )
           VALUES (
-            ${userId}, ${email}, ${displayName}, ${role},
+            ${userId}, NULL, ${displayName}, ${role},
             ${now}, ${now},
-            ${metadata}
+            ${metadata}, ${userKeyHash}
           )
           RETURNING
-            id, email, display_name, role,
+            id, COALESCE(email, metadata->>'contact_email') AS email, display_name, role,
             created_at, last_seen_at, metadata
         `;
 
@@ -106,6 +166,7 @@ exports.handler = async (event) => {
 
         data = {
           userId: row.id,
+          userKey,
           email: row.email,
           display_name: row.display_name,
           role: row.role,
@@ -119,6 +180,13 @@ exports.handler = async (event) => {
       }
 
       case "GET /user/{user_id}": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
         const userId = event.pathParameters?.user_id;
         const userIdValidation = validateUUID(userId, "user_id");
         if (!userIdValidation.valid) {
@@ -126,9 +194,15 @@ exports.handler = async (event) => {
           response.body = JSON.stringify({ error: userIdValidation.error });
           break;
         }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
+          break;
+        }
 
         const user = await sqlConnection`
-          SELECT id, email, display_name, role, created_at, last_seen_at,
+          SELECT id, COALESCE(email, metadata->>'contact_email') AS email,
+                display_name, role, created_at, last_seen_at,
                 messages_sent, messages_window_started_at, metadata
           FROM users
           WHERE id = ${userId}
@@ -151,11 +225,23 @@ exports.handler = async (event) => {
 
       // Update's user with email so they no longer will be anonymous
       case "PUT /user/{user_id}": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
         const userId = event.pathParameters?.user_id;
         const userIdValidation = validateUUID(userId, "user_id");
         if (!userIdValidation.valid) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
           break;
         }
 
@@ -185,8 +271,7 @@ exports.handler = async (event) => {
           break;
         }
 
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(normalizedEmail)) {
+        if (!EMAIL_REGEX.test(normalizedEmail)) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: "Invalid email format" });
           break;
@@ -204,40 +289,99 @@ exports.handler = async (event) => {
           break;
         }
 
-        try {
-          const updatedUser = await sqlConnection`
-            UPDATE users
-            SET
-              email = ${normalizedEmail},
-              last_seen_at = NOW()
-            WHERE id = ${userId}
-            RETURNING
-              id,
-              email,
-              display_name,
-              role,
-              created_at,
-              last_seen_at,
-              messages_sent,
-              messages_window_started_at,
-              metadata
-          `;
+        const updatedUser = await sqlConnection`
+          UPDATE users
+          SET
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('contact_email', ${normalizedEmail}::text),
+            last_seen_at = NOW()
+          WHERE id = ${userId}
+          RETURNING
+            id,
+            COALESCE(email, metadata->>'contact_email') AS email,
+            display_name,
+            role,
+            created_at,
+            last_seen_at,
+            messages_sent,
+            messages_window_started_at,
+            metadata
+        `;
 
-          response.statusCode = 200;
-          response.body = JSON.stringify(updatedUser[0]);
-        } catch (err) {
-          // Postgres unique violation
-          if (err.code === "23505") {
-            response.statusCode = 409;
-            response.body = JSON.stringify({ error: "Email is already in use" });
-            break;
-          }
-          throw err;
+        response.statusCode = 200;
+        response.body = JSON.stringify(updatedUser[0]);
+        break;
+      }
+
+      // Replaces the user's key after verifying the current one; the previous key stops working immediately
+      case "POST /user/{user_id}/key": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
         }
+
+        const userId = event.pathParameters?.user_id;
+        const userIdValidation = validateUUID(userId, "user_id");
+        if (!userIdValidation.valid) {
+          response.statusCode = 400;
+          response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
+          break;
+        }
+
+        const rotateBody = parseBody(event.body);
+        const currentKey = rotateBody?.currentKey;
+
+        const existing = await sqlConnection`
+          SELECT user_key_hash FROM users WHERE id = ${userId}
+        `;
+        if (existing.length === 0) {
+          response.statusCode = 404;
+          response.body = JSON.stringify({ error: "User not found" });
+          break;
+        }
+
+        // The token alone is not enough: the caller must also hold the current key
+        if (typeof currentKey !== "string" || !matchesKeyHash(currentKey, existing[0].user_key_hash)) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Invalid user credentials" });
+          break;
+        }
+
+        const { userKey, userKeyHash } = generateUserKey();
+        // Matching on the hash that was just verified keeps two concurrent rotations from both succeeding
+        const rotated = await sqlConnection`
+          UPDATE users
+          SET user_key_hash = ${userKeyHash},
+              user_key_version = user_key_version + 1
+          WHERE id = ${userId} AND user_key_hash = ${existing[0].user_key_hash}
+          RETURNING user_key_version
+        `;
+
+        if (rotated.length === 0) {
+          response.statusCode = 409;
+          response.body = JSON.stringify({ error: "User key was changed concurrently" });
+          break;
+        }
+
+        response.body = JSON.stringify({ userKey });
         break;
       }
 
       case "GET /user/{user_id}/chat_sessions/{chat_session_id}/chat_history": {
+        const authenticatedUserId = getAuthenticatedUserId(event);
+        if (!authenticatedUserId) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Authentication required" });
+          break;
+        }
+
         const userId = event.pathParameters?.user_id;
         const chatSessionId = event.pathParameters?.chat_session_id;
 
@@ -245,6 +389,11 @@ exports.handler = async (event) => {
         if (!userIdValidation.valid) {
           response.statusCode = 400;
           response.body = JSON.stringify({ error: userIdValidation.error });
+          break;
+        }
+        if (userId.toLowerCase() !== authenticatedUserId) {
+          response.statusCode = 403;
+          response.body = JSON.stringify({ error: "Access denied" });
           break;
         }
         const sessionIdValidation = validateUUID(chatSessionId, "chat_session_id");
@@ -275,7 +424,7 @@ exports.handler = async (event) => {
           response.body = JSON.stringify({ error: "Chat session not found" });
           break;
         }
-        if (chatSession[0].user_id !== userId) {
+        if (chatSession[0].user_id !== authenticatedUserId) {
           response.statusCode = 403;
           response.body = JSON.stringify({ error: "You can only access your own chat sessions" });
           break;
@@ -327,6 +476,7 @@ exports.handler = async (event) => {
     handleError(error, response);
   }
 
-  console.log(response);
+  auditLog(event, response);
+  console.log({ statusCode: response.statusCode });
   return response;
 };

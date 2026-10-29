@@ -2,9 +2,12 @@ import json
 import logging
 from helpers.cors import get_cors_headers
 from helpers.stage_data_sources import (
-    _get_user_id_by_email,
     _validate_file_pair,
     _assert_s3_object_exists,
+    _approved_key_for,
+    _promote_upload,
+    _discard_promoted,
+    InvalidUploadError,
     _existing_file_row_id,
     _insert_data_source_row,
     _insert_ingestion_run_row,
@@ -22,14 +25,13 @@ def _response(event, status_code: int, body: dict):
     }
 
 
-def stage_data_sources_batch(event, body, connection):
+def stage_data_sources_batch(event, body, connection, acting_user):
     """
     Stage multiple CSV/Markdown + metadata JSON file pairs in a single request.
     Duplicates (matched by s3_bucket + s3_key) are silently skipped.
 
     Request body:
     {
-      "created_by": "admin@example.com",
       "items": [
         {
           "type": "csv" | "markdown",
@@ -44,11 +46,8 @@ def stage_data_sources_batch(event, body, connection):
       ]
     }
     """
-    created_by = body.get("created_by")
+    created_by_user_id = acting_user["id"]
     items = body.get("items")
-
-    if not created_by:
-        return _response(event, 400, {"error": "Missing created_by"})
 
     if not isinstance(items, list) or len(items) == 0:
         return _response(event, 400, {"error": "items must be a non-empty array"})
@@ -56,13 +55,10 @@ def stage_data_sources_batch(event, body, connection):
     if len(items) > 100:
         return _response(event, 400, {"error": "Too many items. Maximum is 100 per batch."})
 
-    created_by_user_id = _get_user_id_by_email(connection, created_by)
-    if not created_by_user_id:
-        return _response(event, 400, {"error": "Admin user not found in database"})
-
     staged = []
     skipped = []
     errors = []
+    promoted_keys = []
 
     try:
         for i, item in enumerate(items):
@@ -88,12 +84,19 @@ def stage_data_sources_batch(event, body, connection):
                 errors.append({"index": i, "file": primary_file_name, "error": pair_error})
                 continue
 
+            try:
+                primary_approved_key = _approved_key_for(primary_s3_bucket, primary_s3_key)
+                metadata_approved_key = _approved_key_for(metadata_s3_bucket, metadata_s3_key)
+            except InvalidUploadError as e:
+                errors.append({"index": i, "file": primary_file_name, "error": str(e)})
+                continue
+
             # Check for duplicates — skip silently
-            if _existing_file_row_id(connection, s3_bucket=primary_s3_bucket, s3_key=primary_s3_key):
+            if _existing_file_row_id(connection, s3_bucket=primary_s3_bucket, s3_key=primary_approved_key):
                 skipped.append({"index": i, "file": primary_file_name, "reason": "already_staged"})
                 continue
 
-            if _existing_file_row_id(connection, s3_bucket=metadata_s3_bucket, s3_key=metadata_s3_key):
+            if _existing_file_row_id(connection, s3_bucket=metadata_s3_bucket, s3_key=metadata_approved_key):
                 skipped.append({"index": i, "file": metadata_file_name, "reason": "already_staged"})
                 continue
 
@@ -105,6 +108,12 @@ def stage_data_sources_batch(event, body, connection):
                 logger.error("S3 object not found for item %d: %s", i, e)
                 errors.append({"index": i, "file": primary_file_name, "error": "File not found in S3"})
                 continue
+
+            _promote_upload(primary_s3_key, primary_approved_key)
+            promoted_keys.append(primary_approved_key)
+            _promote_upload(metadata_s3_key, metadata_approved_key)
+            promoted_keys.append(metadata_approved_key)
+            primary_s3_key, metadata_s3_key = primary_approved_key, metadata_approved_key
 
             primary_label = source_type  # "csv" or "markdown"
 
@@ -173,5 +182,6 @@ def stage_data_sources_batch(event, body, connection):
 
     except Exception as e:
         connection.rollback()
+        _discard_promoted(promoted_keys)
         logger.error("Batch staging failed: %s", e, exc_info=True)
         return _response(event, 500, {"error": "Batch staging failed"})

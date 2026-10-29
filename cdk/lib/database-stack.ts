@@ -89,7 +89,7 @@ export class DatabaseStack extends Stack {
       `${id}-rdsParameterGroup`,
       {
         engine: rds.DatabaseInstanceEngine.postgres({
-          version: rds.PostgresEngineVersion.VER_16_8,
+          version: rds.PostgresEngineVersion.VER_16_13,
         }),
         description: "Empty parameter group",
         parameters: {
@@ -107,7 +107,7 @@ export class DatabaseStack extends Stack {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
       engine: rds.DatabaseInstanceEngine.postgres({
-        version: rds.PostgresEngineVersion.VER_16_8,
+        version: rds.PostgresEngineVersion.VER_16_13,
       }),
       instanceType: ec2.InstanceType.of(
         ec2.InstanceClass.BURSTABLE4_GRAVITON,
@@ -137,36 +137,46 @@ export class DatabaseStack extends Stack {
       parameterGroup: parameterGroup,
     });
 
-    // Add CIDR ranges of private subnets to inbound rules of RDS
+    // Database clients (application functions, the initializer, secret rotation and the proxy)
+    // run in the private and isolated subnets only, so only those ranges are allowed in.
+    // Public subnets get no path to the database.
     const dbSecurityGroup = this.dbInstance.connections.securityGroups[0];
-    if (
+    const privateSubnetCidrs: string[] =
       vpcStack.privateSubnetsCidrStrings &&
       vpcStack.privateSubnetsCidrStrings.length > 0
-    ) {
-      vpcStack.privateSubnetsCidrStrings.forEach((cidr) => {
-        dbSecurityGroup.addIngressRule(
-          ec2.Peer.ipv4(cidr),
-          ec2.Port.tcp(5432),
-          `Allow PostgreSQL traffic from private subnet CIDR range ${cidr}`
-        );
-      });
-    } else {
-      console.log(
-        "Deploying with new VPC. No need to add private subnet CIDR ranges to inbound rules of RDS."
-      );
-    }
+        ? vpcStack.privateSubnetsCidrStrings
+        : [
+            ...vpcStack.vpc.privateSubnets,
+            ...vpcStack.vpc.isolatedSubnets,
+          ].map((subnet) => subnet.ipv4CidrBlock);
 
-    // Add CIDR ranges of public subnets to inbound rules of RDS
-    this.dbInstance.connections.securityGroups.forEach(function (
-      securityGroup
-    ) {
-      // Allow Postgres access in VPC
-      securityGroup.addIngressRule(
-        ec2.Peer.ipv4(vpcStack.vpcCidrString),
+    privateSubnetCidrs.forEach((cidr) => {
+      dbSecurityGroup.addIngressRule(
+        ec2.Peer.ipv4(cidr),
         ec2.Port.tcp(5432),
-        "Allow PostgreSQL traffic from public subnets"
+        `Allow PostgreSQL traffic from private subnet CIDR range ${cidr}`
       );
     });
+
+    // The proxy has its own security group: clients reach the proxy, and only the proxy
+    // is allowed through to the instance on behalf of them
+    const proxySecurityGroup = new ec2.SecurityGroup(this, `${id}-ProxySecurityGroup`, {
+      vpc: vpcStack.vpc,
+      description: "RDS Proxy for the application database",
+      allowAllOutbound: true,
+    });
+    privateSubnetCidrs.forEach((cidr) => {
+      proxySecurityGroup.addIngressRule(
+        ec2.Peer.ipv4(cidr),
+        ec2.Port.tcp(5432),
+        `Allow PostgreSQL traffic from private subnet CIDR range ${cidr}`
+      );
+    });
+    dbSecurityGroup.addIngressRule(
+      ec2.Peer.securityGroupId(proxySecurityGroup.securityGroupId),
+      ec2.Port.tcp(5432),
+      "Allow PostgreSQL traffic from the RDS Proxy"
+    );
 
     /**
      * Create IAM role for RDS Proxy
@@ -174,13 +184,6 @@ export class DatabaseStack extends Stack {
     const rdsProxyRole = new iam.Role(this, `${id}-DBProxyRole`, {
       assumedBy: new iam.ServicePrincipal("rds.amazonaws.com"),
     });
-
-    rdsProxyRole.addToPolicy(
-      new iam.PolicyStatement({
-        resources: ["*"],
-        actions: ["rds-db:connect"],
-      })
-    );
 
     /**
      * Create RDS Proxy for database connections with all secrets
@@ -199,7 +202,7 @@ export class DatabaseStack extends Stack {
       ],
       vpc: vpcStack.vpc,
       role: rdsProxyRole,
-      securityGroups: this.dbInstance.connections.securityGroups,
+      securityGroups: [proxySecurityGroup],
       requireTLS: true,
     });
 

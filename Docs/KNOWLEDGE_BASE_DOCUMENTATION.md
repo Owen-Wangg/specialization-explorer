@@ -270,10 +270,10 @@ The upload helper chooses an S3 prefix based on the file name and content type.
 
 | Source      | Prefix             |
 | ----------- | ------------------ |
-| CSV         | `uploads/csv`      |
-| Markdown    | `uploads/markdown` |
-| JSON        | `uploads/json`     |
-| Other files | `uploads/files`    |
+| CSV         | `quarantine/csv`      |
+| Markdown    | `quarantine/markdown` |
+| JSON        | `quarantine/json`     |
+| Other files | `quarantine/files`    |
 
 The generated S3 key uses this format:
 
@@ -283,7 +283,7 @@ The generated S3 key uses this format:
 
 The presigned URL expires after 300 seconds. The admin UI uploads the file directly to S3 using HTTP `PUT`.
 
-Important: generating the presigned URL does not create any database records. The file must still be staged through `POST /admin/data_sources` after upload.
+Important: generating the presigned URL does not create any database records, and objects under `quarantine/` are never read by Bedrock. The file must still be staged through `POST /admin/data_sources` (or the batch route) after upload. Staging checks that the key is a quarantine key in the knowledge base bucket, then copies the file to the same path under `uploads/` (for example `quarantine/csv/1712345678_data.csv` becomes `uploads/csv/1712345678_data.csv`) and records that key. The Bedrock data source is limited to the `uploads/` prefix, so only staged files enter the corpus. Uploads that are never staged are deleted from `quarantine/` after 7 days.
 
 ## Staging Data Sources
 

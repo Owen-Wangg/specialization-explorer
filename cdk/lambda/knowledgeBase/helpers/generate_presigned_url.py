@@ -51,15 +51,15 @@ def _infer_upload_prefix(file_name: str, content_type: str) -> str:
     lower_name = file_name.lower()
 
     if lower_name.endswith(".csv") or content_type == "text/csv":
-        return "uploads/csv"
+        return "quarantine/csv"
 
     if _is_markdown_file(file_name) or content_type == "text/markdown":
-        return "uploads/markdown"
+        return "quarantine/markdown"
 
     if lower_name.endswith(".json") or content_type in {"application/json", "text/json"}:
-        return "uploads/json"
+        return "quarantine/json"
 
-    return "uploads/files"
+    return "quarantine/files"
 
 def generate_presigned_url(event):
     query_params = event.get("queryStringParameters") or {}

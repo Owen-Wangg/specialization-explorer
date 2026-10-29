@@ -177,7 +177,7 @@ curl -X GET "https://{api-id}.execute-api.{region}.amazonaws.com/prod/user/uuid"
 
 ## Update User Email
 
-Update a user's email address.
+Save a contact email for an anonymous user. The address is unverified and is stored as metadata.contact_email, not as the account email.
 
 **Endpoint:** `PUT /user/{user_id}`
 
@@ -538,37 +538,19 @@ curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/prod/admin/use
 
 ---
 
-### Update User Role
+### Register Calling Administrator
 
-Update an existing user's email and role.
+Records the calling administrator in the users table with the `admin` role. The user is identified by the verified e-mail in the caller's Cognito ID token; the request takes no body, and no other user can be targeted. Each call is written to the audit log with the previous and new role.
 
 **Endpoint:** `POST /admin/promote_user`
 
-**Request Body:**
-
-```json
-{
-  "user_id": "uuid",
-  "email": "user@example.com",
-  "role": "admin"
-}
-```
-
-**Parameters:**
-
-- `user_id` (string, required): UUID of the user to update
-- `email` (string, required): Updated email address
-- `role` (string, required): `student` or `admin`
-
-**Response:** `200 OK`
+**Response:** `200 OK` with the caller's user record
 
 **Example (cURL):**
 
 ```bash
 curl -X POST "https://{api-id}.execute-api.{region}.amazonaws.com/prod/admin/promote_user" \
-  -H "Authorization: eyJraWQiOiJ..." \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "uuid", "email": "user@example.com", "role": "admin"}'
+  -H "Authorization: eyJraWQiOiJ..."
 ```
 
 ---
@@ -682,8 +664,8 @@ Stage a new data source (website or CSV) for future syncing.
   "created_by": "admin@example.com",
   "csv_file_name": "data.csv",
   "csv_s3_bucket": "my-kb-bucket",
-  "csv_s3_key": "uploads/csv/1712345678_data.csv",
-  "metadata_s3_key": "uploads/json/1712345678_data.csv.metadata.json"
+  "csv_s3_key": "quarantine/csv/1712345678_data.csv",
+  "metadata_s3_key": "quarantine/json/1712345678_data.csv.metadata.json"
 }
 ```
 
@@ -762,7 +744,7 @@ Generate an S3 presigned URL for uploading a single knowledge base file.
 ```json
 {
   "presignedUrl": "https://s3.amazonaws.com/bucket/path?...",
-  "key": "uploads/csv/1712345678_data.csv",
+  "key": "quarantine/csv/1712345678_data.csv",
   "bucket": "my-kb-bucket"
 }
 ```
@@ -809,7 +791,7 @@ Generate presigned S3 upload URLs for multiple files in a single request. Use th
     {
       "file_name": "alumni.csv",
       "presigned_url": "https://s3.amazonaws.com/bucket/path?...",
-      "key": "uploads/csv/1712345678_alumni.csv",
+      "key": "quarantine/csv/1712345678_alumni.csv",
       "bucket": "my-kb-bucket"
     }
   ]
@@ -848,10 +830,10 @@ Stage multiple CSV/Markdown + metadata JSON file pairs in a single request. Desi
       "type": "csv",
       "primary_file_name": "alumni.csv",
       "primary_s3_bucket": "my-kb-bucket",
-      "primary_s3_key": "uploads/csv/1712345678_alumni.csv",
+      "primary_s3_key": "quarantine/csv/1712345678_alumni.csv",
       "metadata_file_name": "alumni.csv.metadata.json",
       "metadata_s3_bucket": "my-kb-bucket",
-      "metadata_s3_key": "uploads/json/1712345678_alumni.csv.metadata.json"
+      "metadata_s3_key": "quarantine/json/1712345678_alumni.csv.metadata.json"
     }
   ]
 }

@@ -12,10 +12,12 @@
 
 const postgres = require("postgres");
 const { getCorsHeaders } = require("./utils/cors.js");
+const { auditLog } = require("./utils/audit.js");
 const {
   SecretsManagerClient,
   GetSecretValueCommand,
 } = require("@aws-sdk/client-secrets-manager");
+const crypto = require("crypto");
 
 let sqlConnection;
 const secretsManager = new SecretsManagerClient();
@@ -80,6 +82,7 @@ exports.handler = async (event) => {
   if (callerRole !== 'admin') {
     response.statusCode = 403;
     response.body = JSON.stringify({ error: 'Admin access required' });
+    auditLog(event, response, { privileged: true });
     return response;
   }
 
@@ -87,6 +90,7 @@ exports.handler = async (event) => {
   await initConnection();
 
   let data; // Variable to store response data
+  let auditDetails; // Extra fields for the audit record of privileged changes
   try {
     // Route requests based on HTTP method and URL path
     // event.httpMethod: GET, POST, PUT, DELETE
@@ -102,67 +106,54 @@ exports.handler = async (event) => {
         response.body = JSON.stringify(data);
         break;
 
-      // POST /admin/promote_user - Update an existing user's email + role
+      // POST /admin/promote_user - Record the caller as an administrator in the users table.
+      // The caller is already in the Cognito admin group (enforced by the authorizer); the only
+      // row this can change is the one for the caller's own verified Cognito address, so no
+      // user, role or address is taken from the request.
       case "POST /admin/promote_user": {
-        let body;
-        try {
-          body = parseBody(event.body);
-        } catch (error) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: error.message });
+        const callerEmail = (event.requestContext?.authorizer?.email || "").trim().toLowerCase();
+        if (!callerEmail) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Unauthorized" });
           break;
         }
 
-        const userId = body?.user_id;
-        const email = (body?.email || "").trim().toLowerCase();
-        const role = body?.role; // 'admin' | 'student'
+        const promoted = await sqlConnection.begin(async (tx) => {
+          const existing = await tx`
+            SELECT id, role
+            FROM users
+            WHERE lower(email) = ${callerEmail}
+            FOR UPDATE
+          `;
 
-        if (!userId) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: "user_id is required" });
-          break;
-        }
+          if (existing.length > 0) {
+            const rows = await tx`
+              UPDATE users
+              SET role = 'admin'::user_role, last_seen_at = NOW()
+              WHERE id = ${existing[0].id}
+              RETURNING id, email, display_name, role, created_at, last_seen_at,
+                        messages_sent, messages_window_started_at, metadata
+            `;
+            return { row: rows[0], previousRole: existing[0].role };
+          }
 
-        if (!email) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: "email is required" });
-          break;
-        }
+          const rows = await tx`
+            INSERT INTO users (id, email, role, created_at, last_seen_at)
+            VALUES (${crypto.randomUUID()}, ${callerEmail}, 'admin'::user_role, NOW(), NOW())
+            RETURNING id, email, display_name, role, created_at, last_seen_at,
+                      messages_sent, messages_window_started_at, metadata
+          `;
+          return { row: rows[0], previousRole: null };
+        });
 
-        const validRoles = ["admin", "student"];
-        if (!validRoles.includes(role)) {
-          response.statusCode = 400;
-          response.body = JSON.stringify({ error: "role must be 'admin' or 'student'" });
-          break;
-        }
-
-        const updated = await sqlConnection`
-          UPDATE users
-          SET
-            email = ${email},
-            role = ${role}::user_role,
-            last_seen_at = NOW()
-          WHERE id = ${userId}::uuid
-          RETURNING
-            id,
-            email,
-            display_name,
-            role,
-            created_at,
-            last_seen_at,
-            messages_sent,
-            messages_window_started_at,
-            metadata
-        `;
-
-        if (updated.length === 0) {
-          response.statusCode = 404;
-          response.body = JSON.stringify({ error: "User not found" });
-          break;
-        }
+        auditDetails = {
+          targetUserId: promoted.row.id,
+          previousRole: promoted.previousRole,
+          newRole: promoted.row.role,
+        };
 
         response.statusCode = 200;
-        response.body = JSON.stringify(updated[0]);
+        response.body = JSON.stringify(promoted.row);
         break;
       }
 
@@ -1338,8 +1329,8 @@ exports.handler = async (event) => {
     }
   }
 
-  // Log response for debugging (visible in AWS CloudWatch Logs)
-  console.log(response);
+  auditLog(event, response, { privileged: true, details: auditDetails });
+  console.log({ statusCode: response.statusCode });
 
   // Return HTTP response to API Gateway, which forwards it to the client
   return response;

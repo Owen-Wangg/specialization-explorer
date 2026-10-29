@@ -39,12 +39,6 @@ export class CICDStack extends cdk.Stack {
       assumedBy: new iam.ServicePrincipal("codebuild.amazonaws.com"),
     });
 
-    codeBuildRole.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName(
-        "AmazonEC2ContainerRegistryPowerUser"
-      )
-    );
-
     const lambdaUpdateArns = props.lambdaFunctions.map(
       (fn) => `arn:aws:lambda:${this.region}:${this.account}:function:${fn.functionName}`
     );
@@ -153,6 +147,16 @@ export class CICDStack extends cdk.Stack {
         })
       );
 
+      // The build role may only pull, push and read scan results for the repositories it builds
+      ecrRepo.grantPullPush(codeBuildRole);
+      codeBuildRole.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ["ecr:DescribeImages", "ecr:DescribeImageScanFindings"],
+          resources: [ecrRepo.repositoryArn],
+        })
+      );
+
       this.ecrRepositories[lambda.name] = ecrRepo;
       cdk.Tags.of(ecrRepo).add("module", lambda.name);
       cdk.Tags.of(ecrRepo).add("env", envName);
@@ -229,35 +233,30 @@ export class CICDStack extends cdk.Stack {
               },
               post_build: {
                 commands: [
-                  "docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:latest",
+                  // post_build also runs after a failed build; there is nothing to publish then
+                  'test "$CODEBUILD_BUILD_SUCCEEDING" = "1"',
+                  // Only the commit-specific tag is pushed until the scan has passed
                   "docker push $REPOSITORY_URI:$IMAGE_TAG",
-                  "docker push $REPOSITORY_URI:latest",
                   'echo "Waiting for vulnerability scan to complete..."',
-                  "sleep 30",
-                  'echo "Checking vulnerability scan results..."',
-                  // Combine the vulnerability check into a single command using bash script
-                  `bash -c '
-                    SCAN_RESULTS=$(aws ecr describe-image-scan-findings \
-                      --repository-name $REPO_NAME \
-                      --image-id imageTag=latest \
-                      --query "imageScanFindingsSummary.findingCounts.CRITICAL" \
-                      --output text 2>/dev/null || echo "0")
-                    
-                    if [[ "$SCAN_RESULTS" != "0" && "$SCAN_RESULTS" != "None" ]]; then
-                      echo "CRITICAL vulnerabilities found: $SCAN_RESULTS. Blocking deployment."
-                      exit 1
-                    else
-                      echo "No critical vulnerabilities found. Proceeding with deployment."
-                    fi
-                  '`,
+                  "aws ecr wait image-scan-complete --repository-name $REPO_NAME --image-id imageTag=$IMAGE_TAG",
+                  // Any failure to read the results fails the build; nothing here defaults to a pass
+                  "SCAN_STATUS=$(aws ecr describe-image-scan-findings --repository-name $REPO_NAME --image-id imageTag=$IMAGE_TAG --query imageScanStatus.status --output text)",
+                  'if [ "$SCAN_STATUS" != "COMPLETE" ]; then echo "Vulnerability scan did not complete (status: $SCAN_STATUS). Blocking deployment."; exit 1; fi',
+                  // A completed scan with no CRITICAL findings reports no CRITICAL key at all
+                  "CRITICAL_COUNT=$(aws ecr describe-image-scan-findings --repository-name $REPO_NAME --image-id imageTag=$IMAGE_TAG --query imageScanFindingsSummary.findingCounts.CRITICAL --output text)",
+                  'if [ "$CRITICAL_COUNT" = "None" ]; then CRITICAL_COUNT=0; fi',
+                  'if ! echo "$CRITICAL_COUNT" | grep -Eq "^[0-9]+$"; then echo "Unreadable scan result: $CRITICAL_COUNT. Blocking deployment."; exit 1; fi',
+                  'if [ "$CRITICAL_COUNT" -gt 0 ]; then echo "CRITICAL vulnerabilities found: $CRITICAL_COUNT. Blocking deployment."; exit 1; fi',
+                  'echo "No critical vulnerabilities found. Promoting image."',
+                  "docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:latest",
+                  "docker push $REPOSITORY_URI:latest",
+                  "export IMAGE_TAG",
                   'echo "Checking if Lambda function exists before updating..."',
-                  // Combine the Lambda update into a single command
+                  // The function is pointed at the verified, commit-specific tag
                   `bash -c '
                     if aws lambda get-function --function-name $LAMBDA_FUNCTION_NAME &>/dev/null; then
                       echo "Updating Lambda function to use the new image..."
-                      aws lambda update-function-code \
-                        --function-name $LAMBDA_FUNCTION_NAME \
-                        --image-uri $REPOSITORY_URI:latest
+                      aws lambda update-function-code                         --function-name $LAMBDA_FUNCTION_NAME                         --image-uri $REPOSITORY_URI:$IMAGE_TAG
                     else
                       echo "Lambda function $LAMBDA_FUNCTION_NAME does not exist yet. Skipping update."
                     fi

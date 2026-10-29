@@ -6,53 +6,38 @@ import rehypeSanitize from "rehype-sanitize";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Bot, User, MessageSquare, ChevronDown, ChevronRight, Clock, RefreshCw } from "lucide-react";
 import { AuthService } from "@/functions/authService";
+import { apiCache } from "@/functions/apiCache";
 import { cn } from "@/lib/utils";
+import { isSafeUrl } from "@/lib/safeUrl";
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_PREFIX = 'admin_chat_';
 
-const clearAdminCache = () => {
+// Transcripts and user data live in the shared in-memory cache, which expires entries
+// after the TTL and is emptied on sign-out, so nothing is written to browser storage.
+
+// Remove anything an earlier version of this page left in localStorage
+const clearLegacyStorage = () => {
     Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('admin_chat_')) {
+        if (key.startsWith(CACHE_PREFIX)) {
             localStorage.removeItem(key);
         }
     });
 };
 
-const getCachedItem = (key: string) => {
-    try {
-        const item = localStorage.getItem(key);
-        if (!item) return null;
-        const parsed = JSON.parse(item);
-        if (Date.now() - parsed.timestamp > CACHE_TTL) {
-            localStorage.removeItem(key);
-            return null;
-        }
-        return parsed.data;
-    } catch (e) {
-        return null;
-    }
+const clearAdminCache = () => {
+    ((apiCache.getStats() as { keys: string[] }).keys)
+        .filter(key => key.startsWith(CACHE_PREFIX))
+        .forEach(key => apiCache.delete(key));
+    clearLegacyStorage();
 };
 
+const getCachedItem = (key: string) => apiCache.get(key);
+
 const setCachedItem = (key: string, data: any) => {
-    try {
-        localStorage.setItem(key, JSON.stringify({
-            timestamp: Date.now(),
-            data
-        }));
-    } catch (e) {
-        // Handle quota exceeded
-        console.warn('Local storage full, clearing admin cache');
-        clearAdminCache();
-        try {
-            localStorage.setItem(key, JSON.stringify({
-                timestamp: Date.now(),
-                data
-            }));
-        } catch (e2) {
-            console.error('Failed to cache item after clearing:', e2);
-        }
-    }
+    apiCache.set(key, data, CACHE_TTL);
 };
+
 // --- Types ---
 type UserData = {
     id: string;
@@ -92,7 +77,9 @@ export default function ChatHistory() {
 
     // Initial load
     useEffect(() => {
+        clearLegacyStorage();
         fetchUsers();
+        return clearAdminCache;
     }, []);
 
     const getAuthHeaders = async () => {
@@ -223,7 +210,8 @@ export default function ChatHistory() {
     };
 
     const formatSource = (source: any) => {
-        const uri = source?.uri || source?.url || source;
+        const rawUri = source?.uri || source?.url || source;
+        const uri = typeof rawUri === 'string' ? rawUri : '';
         const type = source?.type || (uri.includes('s3') ? 'S3' : 'WEB');
         const content = source?.content || "No content extracted";
 
@@ -231,7 +219,7 @@ export default function ChatHistory() {
             <div className="flex flex-col gap-1 w-full text-left">
                 <div className="flex items-center gap-1.5 break-all text-[11px] font-medium text-primary">
                     <span className="bg-gray-200 text-gray-700 px-1 py-0.5 rounded text-[9px] font-bold">{type}</span>
-                    <a href={uri} target="_blank" rel="noopener noreferrer" className="hover:underline" title={uri}>{uri}</a>
+                    <a href={uri && isSafeUrl(uri) ? uri : "#"} target="_blank" rel="noopener noreferrer" className="hover:underline" title={uri}>{uri}</a>
                 </div>
                 <div className="text-[11px] text-gray-500 italic pl-2 border-l-2 border-gray-200">
                     "{content}"

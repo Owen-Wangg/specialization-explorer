@@ -10,6 +10,7 @@ import { Menu, X } from "lucide-react";
 import { useSidebar } from "@/providers/sidebar";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useUser } from "@/providers/user";
+import { fetchUserToken } from "@/lib/userToken";
 import logoImage from "@/assets/SpecEx-logo.png";
 
 type Mode = "student" | "admin";
@@ -45,17 +46,7 @@ export default function Header() {
     }
   };
 
-  const getPublicToken = async () => {
-    const tokenResponse = await fetch(
-      `${import.meta.env.VITE_API_ENDPOINT}/user/publicToken`
-    );
-
-    if (!tokenResponse.ok) {
-      throw new Error("Failed to get public token");
-    }
-
-    return tokenResponse.json() as Promise<{ token: string }>;
-  };
+  const getPublicToken = async () => ({ token: await fetchUserToken() });
 
   const fetchUserProfile = async (id: string): Promise<UserProfile | null> => {
     try {
@@ -103,7 +94,7 @@ export default function Header() {
     };
 
     loadRole();
-  }, [userId, isLoadingUser]);
+  }, [userId, isLoadingUser, location.pathname]); // re-check after navigation, e.g. once admin login has completed
 
   const canSwitchModes = userRole === "admin";
 

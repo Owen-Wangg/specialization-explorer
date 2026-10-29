@@ -28,13 +28,8 @@ def check_limit(user_id: str, db_connection) -> tuple[bool, dict]:
             row = cur.fetchone()
 
             if not row:
-                usage_info = {
-                    "messages_sent": 0,
-                    "limit": config.MAX_MESSAGES_PER_DAY,
-                    "remaining": config.MAX_MESSAGES_PER_DAY,
-                    "reset_at": (now_utc + timedelta(hours=24)).isoformat()
-                }
-                return True, usage_info
+                logger.error("Message limit check for a user with no DB row")
+                return False, {"error": "Unable to verify message limits from DB."}
 
             messages_sent = row[0] or 0
             window_start = row[1]

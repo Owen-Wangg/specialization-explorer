@@ -7,15 +7,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSanitize from "rehype-sanitize";
 import TypingIndicator from "./TypingIndicator";
-
-const isSafeUrl = (url: string) => {
-  try {
-    const parsed = new URL(url);
-    return ['http:', 'https:'].includes(parsed.protocol);
-  } catch {
-    return false;
-  }
-};
+import { isSafeUrl } from "@/lib/safeUrl";
 
 type AIChatMessageProps = {
   text: string;

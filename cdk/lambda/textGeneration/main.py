@@ -1,6 +1,7 @@
 
 import boto3.exceptions
 import json
+import uuid
 from helpers.cors import get_cors_headers
 import logging
 import os
@@ -8,7 +9,7 @@ import boto3
 from helpers.chat import get_response
 from helpers.db_connection import get_db_connection
 import helpers.config as config
-from helpers.session_security import validate_session_ownership, sanitize_session_id
+from helpers.session_security import validate_session_ownership, sanitize_session_id, session_exists
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -32,25 +33,29 @@ def handler(event, context=None):
                 'body': json.dumps({'error': 'Invalid JSON body'})
             }
 
+    if not isinstance(body, dict):
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': 'Invalid JSON body'})
+        }
+
     query = body.get('query')
     is_intro_message = body.get('is_intro_message', False)
     
-    # Perform Query Length Validation 
-    if len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
-        return {
-            'statusCode': 400,
-            'body': json.dumps({'error': f'Query exceeds maximum length of {config.MAX_CHARACTERS_PER_USER_MESSAGE} characters'})
-        }
-    
-    chat_session_id = body.get('chat_session_id')
-    
-    # Fallback to path parameters
-    if not chat_session_id and 'pathParameters' in event and event['pathParameters']:
-        chat_session_id = event['pathParameters'].get('chat_session_id') or event['pathParameters'].get('id')
+    # The session comes from the route; the identity comes from the verified token
+    path_parameters = event.get('pathParameters') or {}
+    chat_session_id = path_parameters.get('chat_session_id') or path_parameters.get('id')
 
-    user_id = body.get('user_id')
-    
-    if not query or not chat_session_id:
+    user_id = ((event.get('requestContext') or {}).get('authorizer') or {}).get('userId')
+    try:
+        user_id = str(uuid.UUID(str(user_id)))
+    except ValueError:
+        return {
+            'statusCode': 401,
+            'body': json.dumps({'error': 'Unauthorized'})
+        }
+
+    if not isinstance(query, str) or not query.strip() or not chat_session_id:
         return {
             'statusCode': 400,
             'body': json.dumps({'error': 'Missing query or chat_session_id'})
@@ -70,17 +75,29 @@ def handler(event, context=None):
     try:
         conn = get_db_connection()
 
-        # Validate the session ownership before doing anything with the session 
-        if user_id: 
-            if not validate_session_ownership(conn, chat_session_id, user_id): 
+        # Sessions are only created through POST /chat_sessions, so an unknown id is a 404
+        # and nothing is written before ownership and the message quota are checked
+        if not validate_session_ownership(conn, chat_session_id, user_id):
+            if not session_exists(conn, chat_session_id):
                 return {
-                    'statusCode': 403,
-                    'body': json.dumps({'error': 'Unauthorized access to chat session'})
+                    'statusCode': 404,
+                    'body': json.dumps({'error': 'Chat session not found'})
                 }
+            return {
+                'statusCode': 403,
+                'body': json.dumps({'error': 'Unauthorized access to chat session'})
+            }
         
         # Load dynamic configuration from DB
         config.load_config(conn)
         
+        # Validate the query length against the configured limit
+        if len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': f'Query exceeds maximum length of {config.MAX_CHARACTERS_PER_USER_MESSAGE} characters'})
+            }
+
         request_context = event.get('requestContext', {})
         connection_id = request_context.get('connectionId')
         apigw_management = None

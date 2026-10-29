@@ -1,8 +1,5 @@
+const crypto = require("crypto");
 const { initializeConnection } = require("./initializeConnection.js");
-const {
-  CognitoIdentityProviderClient,
-  AdminGetUserCommand,
-} = require("@aws-sdk/client-cognito-identity-provider");
 
 const { SM_DB_CREDENTIALS, RDS_PROXY_ENDPOINT } = process.env;
 let sqlConnection = global.sqlConnection;
@@ -29,23 +26,23 @@ exports.handler = async (event) => {
     const familyName = userAttributes.family_name || "";
     const displayName = `${givenName} ${familyName}`.trim() || email;
 
-    console.log("Creating admin user:", { email, displayName });
+    console.log("Creating user");
 
-    // Insert the new admin user into the Users table
+    // New accounts start without privileges; admins are granted via /admin/promote_user
     const result = await sqlConnection`
-      INSERT INTO users (display_name, email, role, created_at, updated_at)
-      VALUES (${displayName}, ${email}, 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON CONFLICT (email) DO UPDATE 
-      SET updated_at = CURRENT_TIMESTAMP
+      INSERT INTO users (id, display_name, email, role, created_at, last_seen_at)
+      VALUES (${crypto.randomUUID()}, ${displayName}, ${email}, 'student', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT (email) DO UPDATE
+      SET last_seen_at = CURRENT_TIMESTAMP
       RETURNING id, email, role
     `;
 
-    console.log("Admin user created/updated:", result[0]);
+    console.log("User created/updated:", { id: result[0]?.id, role: result[0]?.role });
 
     // IMPORTANT: For Cognito triggers, you must return the event object
     return event;
   } catch (err) {
-    console.error("Error inserting admin user into database:", err);
+    console.error("Error inserting user into database:", err);
     // Even on error, return the event to allow sign-up to complete
     // The user can still authenticate, but won't be in the database yet
     return event;

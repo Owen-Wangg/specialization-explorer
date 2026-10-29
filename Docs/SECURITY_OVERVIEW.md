@@ -120,8 +120,8 @@ Specialization Explorer is an AI-powered conversational application that helps u
 ║   │     AWS Cognito      │   ║   │     Custom JWT       │       ║
 ║   │                      │   ║   │                      │       ║
 ║   │  · Email / password  │   ║   │  · Anonymous access  │       ║
-║   │  · MFA support       │   ║   │  · Short-lived token │       ║
-║   │  · Email verify      │   ║   │  · Auto-refresh      │       ║
+║   │  · Optional TOTP MFA │   ║   │  · Short-lived token │       ║
+║   │  · Email verify      │   ║   │  · Bound to user key │       ║
 ║   │  · Group membership  │   ║   │                      │       ║
 ║   └──────────┬───────────┘   ║   └──────────┬───────────┘       ║
 ║              │               ║              │                   ║
@@ -172,8 +172,8 @@ Specialization Explorer is an AI-powered conversational application that helps u
 | Rule Category | Protection |
 |---------------|------------|
 | **Managed Rules** | SQL injection, XSS, path traversal, and common attacks |
-| **Rate Limiting** | IP-based limits with authentication awareness |
-| **Endpoint Protection** | Stricter limits for expensive AI operations |
+| **Rate Limiting** | Per-IP limit on all requests |
+| **Endpoint Protection** | Stricter limits for expensive AI operations, account creation, and token issuance |
 
 ### 4.3 Request Validation
 
@@ -287,8 +287,10 @@ Specialization Explorer is an AI-powered conversational application that helps u
 |------------|---------|----------|
 | Database credentials (admin) | AWS Secrets Manager | 30-day automatic |
 | Database credentials (app users) | AWS Secrets Manager | 30-day automatic |
-| JWT signing key | AWS Secrets Manager | Manual |
+| JWT signing key | AWS Secrets Manager | 30-day automatic (custom rotation function) |
 | Cognito secrets | AWS Secrets Manager | N/A (static IDs) |
+
+The token verifiers re-read the signing key every 5 minutes and accept the previous key for 25 minutes after a rotation (token lifetime plus cache time). To retire a compromised key, run `aws secretsmanager rotate-secret` on the JWT secret and wait 25 minutes, or rotate twice; tokens signed with the old key are then rejected. Tokens are valid for 15 minutes, and a single user's access is withdrawn by clearing `users.user_key_hash`, which stops new tokens being issued for that user.
 
 ### 6.4 S3 Bucket Security
 

@@ -16,6 +16,7 @@
   - [Step 1: Build AWS Amplify App](#step-1-build-aws-amplify-app)
   - [Step 2: Configure Admin User](#step-2-configure-admin-user)
   - [Step 3: Visit Web App](#step-3-visit-web-app)
+  - [Step 4: Add Data to the Knowledge Base](#step-4-add-data-to-the-knowledge-base)
 - [Troubleshooting](#troubleshooting)
   - [Common Issues](#common-issues)
 - [Cleanup](#cleanup)
@@ -45,8 +46,8 @@ To request quota increases:
 1. Navigate to the **AWS Service Quotas** console in your AWS account
 2. Search for "Bedrock" in the service quotas
 3. Select the relevant LLM models you plan to use:
-   - Anthropic Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`)
-   - Anthropic Claude Sonnet 4.6 (`us.anthropic.claude-sonnet-4-6`)
+   - Anthropic Claude Haiku 5.5 (`us.anthropic.claude-haiku-5-5`)
+   - Anthropic Claude Sonnet 5.5 (`us.anthropic.claude-sonnet-5-5`)
    - Cohere Embed V3
 4. Request quota increases for "Requests per minute" based on your expected usage
 5. Submit the quota increase request and wait for AWS approval (this can take 24-48 hours)
@@ -300,6 +301,8 @@ aws ssm put-parameter \
     --profile <YOUR-PROFILE-NAME>
 ```
 
+Self sign-up is disabled, so administrator accounts are created in the Cognito console after deployment (see [Step 2: Configure Admin User](#step-2-configure-admin-user)). The administrator's email domain must be in this allow-list.
+
 The application uses two Claude models for text generation, referenced via SSM parameters. You must create both parameters before deploying.
 
 **Haiku model** (used for lightweight/fast responses):
@@ -310,7 +313,7 @@ The application uses two Claude models for text generation, referenced via SSM p
 ```bash
 aws ssm put-parameter \
     --name "/SpecEx/LLM/HaikuArn" \
-    --value "us.anthropic.claude-haiku-4-5-20251001-v1:0" \
+    --value "us.anthropic.claude-haiku-5-5" \
     --type String \
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -323,7 +326,7 @@ aws ssm put-parameter \
 ```cmd
 aws ssm put-parameter ^
     --name "/SpecEx/LLM/HaikuArn" ^
-    --value "us.anthropic.claude-haiku-4-5-20251001-v1:0" ^
+    --value "us.anthropic.claude-haiku-5-5" ^
     --type String ^
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -336,7 +339,7 @@ aws ssm put-parameter ^
 ```powershell
 aws ssm put-parameter `
     --name "/SpecEx/LLM/HaikuArn" `
-    --value "us.anthropic.claude-haiku-4-5-20251001-v1:0" `
+    --value "us.anthropic.claude-haiku-5-5" `
     --type String `
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -353,7 +356,7 @@ aws ssm put-parameter `
 ```bash
 aws ssm put-parameter \
     --name "/SpecEx/LLM/SonnetArn" \
-    --value "us.anthropic.claude-sonnet-4-6" \
+    --value "us.anthropic.claude-sonnet-5-5" \
     --type String \
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -366,7 +369,7 @@ aws ssm put-parameter \
 ```cmd
 aws ssm put-parameter ^
     --name "/SpecEx/LLM/SonnetArn" ^
-    --value "us.anthropic.claude-sonnet-4-6" ^
+    --value "us.anthropic.claude-sonnet-5-5" ^
     --type String ^
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -379,7 +382,7 @@ aws ssm put-parameter ^
 ```powershell
 aws ssm put-parameter `
     --name "/SpecEx/LLM/SonnetArn" `
-    --value "us.anthropic.claude-sonnet-4-6" `
+    --value "us.anthropic.claude-sonnet-5-5" `
     --type String `
     --profile <YOUR-PROFILE-NAME>
 ```
@@ -476,14 +479,16 @@ For example, if existing subnets use `172.31.0.0/20` and `172.31.16.0/20`, use `
 
 #### Initialize the CDK stack
 
+Run the CDK commands below from the `cdk` folder after `npm ci`. They use `npx cdk` so the CLI version always matches the project's `aws-cdk-lib`.
+
 **Initialize the CDK stack** (required only if you have not deployed any resources with CDK in this region before). Please replace `<YOUR-PROFILE-NAME>` with the appropriate AWS profile used earlier.
 
 ```bash
-cdk synth \
+npx cdk synth \
   --profile <YOUR-PROFILE-NAME> \
   --context githubRepo=specialization-explorer
 
-cdk bootstrap \
+npx cdk bootstrap \
   aws://<YOUR_AWS_ACCOUNT_ID>/<YOUR_ACCOUNT_REGION> \
   --profile <YOUR-PROFILE-NAME> \
   --context githubRepo=specialization-explorer
@@ -496,7 +501,7 @@ You may run the following command to deploy the stacks all at once. Again, repla
 The stack prefix will be prefixed onto the physical names of the resources created during deployment. The `environment` parameter specifies the deployment environment (dev, test, prod), the `version` parameter indicates the application version being deployed, and the `githubRepo` parameter should match your forked repository name.
 
 ```bash
-cdk deploy --all \
+npx cdk deploy --all \
   --context StackPrefix=<YOUR-STACK-PREFIX> \
   --context environment=dev \
   --context version=1.0.0 \
@@ -507,7 +512,7 @@ cdk deploy --all \
 For example:
 
 ```bash
-cdk deploy --all \
+npx cdk deploy --all \
   --context StackPrefix=<YOUR-STACK-PREFIX> \
   --context environment=dev \
   --context version=1.0.0 \
@@ -562,7 +567,7 @@ This means in most cases you do not need to manually trigger the pipeline — it
 1. Go to **AWS Console → CodePipeline** → select `<STACK-PREFIX>-CICD-DockerImagePipeline`.
 2. Check if the pipeline failed — a common cause is the GitHub connection not being authorized yet.
 3. Authorize the connection (see above), then click **Release change** to re-run the pipeline.
-4. Once the pipeline completes and the image is in ECR, redeploy: `cdk deploy <STACK-PREFIX>-KnowledgeBase --profile <YOUR-PROFILE-NAME>`.
+4. Once the pipeline completes and the image is in ECR, redeploy: `npx cdk deploy <STACK-PREFIX>-KnowledgeBase --profile <YOUR-PROFILE-NAME>`.
 
 **Notes:**
 
@@ -603,6 +608,16 @@ This means in most cases you do not need to manually trigger the pipeline — it
 5. Wait for the build to complete (this may take 5-10 minutes)
 6. You now have access to the `Amplify App ID` and the public domain name to use the web app.
 
+> [!NOTE]
+> If the build fails with the following IAM role error:
+>
+> `Unable to assume specified IAM Role. Please ensure the selected IAM Role has sufficient permissions and the Trust Relationship is configured correctly.`
+>
+> 1. In the Amplify app, go to **App settings**.
+> 2. Click **Branch settings**.
+> 3. Click **Reconnect repository** and complete the GitHub authorization.
+> 4. Return to the branch and click `Redeploy this version` again.
+
 ### Step 2: Configure Admin User
 
 To create an admin user for accessing the admin dashboard:
@@ -619,13 +634,25 @@ To create an admin user for accessing the admin dashboard:
 7. Click "Create user"
 8. After creation, select the user and click "Add user to group"
 9. Select the "admin" group
-10. On first login, you'll be prompted to change your password
+10. Open the web app and add `/admin/login` to the end of the URL, then sign in with the email and temporary password. You'll be prompted to set a new password on first login.
+
+After the first sign-in, the mode dropdown appears in the top right of the header, so the administrator can switch between the student and administrator views. Further administrators are created the same way. Administrators can optionally enroll an authenticator app (TOTP) for MFA.
 
 ### Step 3: Visit Web App
 
 You can now navigate to the web app URL (found in the Amplify console) to see your application in action.
 
 **Default URL format:** `https://main.<app-id>.amplifyapp.com`
+
+### Step 4: Add Data to the Knowledge Base
+
+A freshly deployed knowledge base is empty, so the chatbot has nothing to answer from until an administrator adds data. Sign in as an administrator and use the dashboard to add data sources, then sync them:
+
+- [Adding a Website](./USER_GUIDE.md#adding-a-website): stage a website for crawling, with optional include/exclude URL patterns.
+- [Adding a File](./USER_GUIDE.md#adding-a-file): upload a CSV/Markdown file and its metadata JSON.
+- [Syncing Data Sources](./USER_GUIDE.md#syncing-data-sources): start an ingestion job so staged sources become searchable.
+
+See the [Knowledge Base Documentation](./KNOWLEDGE_BASE_DOCUMENTATION.md) for how ingestion works under the hood.
 
 ### Adding Custom Allowed Origins
 

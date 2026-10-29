@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "javascript"]
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/cdk"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "javascript"]
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/cdk/lambda/ecrImageWaiter"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "javascript"]
+
+  - package-ecosystem: "pip"
+    directory: "/cdk/lambda/textGeneration"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "python"]
+
+  - package-ecosystem: "pip"
+    directory: "/cdk/lambda/vectorIndexManagerSigV4"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "python"]
+
+  - package-ecosystem: "docker"
+    directory: "/cdk/lambda/vectorIndexManagerSigV4"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
