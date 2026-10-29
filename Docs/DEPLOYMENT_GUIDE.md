@@ -16,6 +16,7 @@
   - [Step 1: Build AWS Amplify App](#step-1-build-aws-amplify-app)
   - [Step 2: Configure Admin User](#step-2-configure-admin-user)
   - [Step 3: Visit Web App](#step-3-visit-web-app)
+  - [Step 4: Add Data to the Knowledge Base](#step-4-add-data-to-the-knowledge-base)
 - [Troubleshooting](#troubleshooting)
   - [Common Issues](#common-issues)
 - [Cleanup](#cleanup)
@@ -642,6 +643,16 @@ After the first sign-in, the mode dropdown appears in the top right of the heade
 You can now navigate to the web app URL (found in the Amplify console) to see your application in action.
 
 **Default URL format:** `https://main.<app-id>.amplifyapp.com`
+
+### Step 4: Add Data to the Knowledge Base
+
+A freshly deployed knowledge base is empty, so the chatbot has nothing to answer from until an administrator adds data. Sign in as an administrator and use the dashboard to add data sources, then sync them:
+
+- [Adding a Website](./USER_GUIDE.md#adding-a-website): stage a website for crawling, with optional include/exclude URL patterns.
+- [Adding a File](./USER_GUIDE.md#adding-a-file): upload a CSV/Markdown file and its metadata JSON.
+- [Syncing Data Sources](./USER_GUIDE.md#syncing-data-sources): start an ingestion job so staged sources become searchable.
+
+See the [Knowledge Base Documentation](./KNOWLEDGE_BASE_DOCUMENTATION.md) for how ingestion works under the hood.
 
 ### Adding Custom Allowed Origins
 
