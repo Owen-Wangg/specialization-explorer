@@ -23,6 +23,14 @@ const generateUserKey = () => {
   return { userKey, userKeyHash };
 };
 
+// Timing-safe comparison of a presented key against users.user_key_hash; a missing hash never matches
+const matchesKeyHash = (userKey, storedHash) => {
+  if (!storedHash) return false;
+  const providedHash = crypto.createHash("sha256").update(userKey).digest();
+  const storedBuf = Buffer.from(storedHash, "hex");
+  return storedBuf.length === providedHash.length && crypto.timingSafeEqual(providedHash, storedBuf);
+};
+
 const initConnection = async () => {
   if (!sqlConnection) {
     try {
@@ -305,7 +313,7 @@ exports.handler = async (event) => {
         break;
       }
 
-      // Replaces the user's key; the previous key stops working immediately
+      // Replaces the user's key after verifying the current one; the previous key stops working immediately
       case "POST /user/{user_id}/key": {
         const authenticatedUserId = getAuthenticatedUserId(event);
         if (!authenticatedUserId) {
@@ -327,18 +335,38 @@ exports.handler = async (event) => {
           break;
         }
 
+        const rotateBody = parseBody(event.body);
+        const currentKey = rotateBody?.currentKey;
+
+        const existing = await sqlConnection`
+          SELECT user_key_hash FROM users WHERE id = ${userId}
+        `;
+        if (existing.length === 0) {
+          response.statusCode = 404;
+          response.body = JSON.stringify({ error: "User not found" });
+          break;
+        }
+
+        // The token alone is not enough: the caller must also hold the current key
+        if (typeof currentKey !== "string" || !matchesKeyHash(currentKey, existing[0].user_key_hash)) {
+          response.statusCode = 401;
+          response.body = JSON.stringify({ error: "Invalid user credentials" });
+          break;
+        }
+
         const { userKey, userKeyHash } = generateUserKey();
+        // Matching on the hash that was just verified keeps two concurrent rotations from both succeeding
         const rotated = await sqlConnection`
           UPDATE users
           SET user_key_hash = ${userKeyHash},
               user_key_version = user_key_version + 1
-          WHERE id = ${userId}
+          WHERE id = ${userId} AND user_key_hash = ${existing[0].user_key_hash}
           RETURNING user_key_version
         `;
 
         if (rotated.length === 0) {
-          response.statusCode = 404;
-          response.body = JSON.stringify({ error: "User not found" });
+          response.statusCode = 409;
+          response.body = JSON.stringify({ error: "User key was changed concurrently" });
           break;
         }
 

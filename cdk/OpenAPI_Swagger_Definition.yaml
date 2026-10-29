@@ -1774,6 +1774,18 @@ paths:
           schema:
             type: string
             format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentKey
+              properties:
+                currentKey:
+                  type: string
+                  description: The user's current key, required in addition to the token
       responses:
         "200":
           description: New key issued

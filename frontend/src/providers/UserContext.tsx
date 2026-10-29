@@ -15,6 +15,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const validateUser = async (stored: {
       userId: string;
+      userKey: string;
       createdAt?: string;
       keyIssuedAt?: string;
     }) => {
@@ -48,13 +49,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     // Failure keeps the current key, which stays valid until a rotation succeeds
     const rotateKey = async (
-      stored: { userId: string; createdAt?: string },
+      stored: { userId: string; userKey: string; createdAt?: string },
       token: string
     ) => {
       try {
         const response = await fetch(
           `${import.meta.env.VITE_API_ENDPOINT}/user/${stored.userId}/key`,
-          { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ currentKey: stored.userKey }),
+          }
         );
         if (!response.ok) return;
 
@@ -140,7 +148,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
             // Sessions stored before user keys existed cannot get a user-bound token
             if (parsed.userId && parsed.userKey) {
-              const ok = await validateUser(parsed);
+              const ok = await validateUser({ ...parsed, userKey: parsed.userKey });
               if (ok) {
                 setUserId(parsed.userId);
                 setIsLoading(false);
