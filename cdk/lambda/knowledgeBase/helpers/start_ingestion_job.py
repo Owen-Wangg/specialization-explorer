@@ -66,7 +66,8 @@ def start_ingestion_job(event, body, connection, kb_id, acting_user):
     This method:
     - validates the requesting admin
     - creates a new sync_session_id
-    - promotes pending ingestion runs to queued
+    - promotes pending ingestion runs to queued (runs already queued by an
+      earlier failed sync are retried even when nothing new is pending)
     - attempts to start the S3 batch first
     - if no S3 batch is eligible, attempts to start the website batch
     - returns the first phase that was successfully started
@@ -87,14 +88,9 @@ def start_ingestion_job(event, body, connection, kb_id, acting_user):
         connection.commit()
 
         if queued_count == 0:
-            return _response(
-                event,
-                409,
-                {
-                    "error": "No pending data sources found to queue.",
-                    "sync_session_id": sync_session_id,
-                },
-            )
+            # Nothing new to promote, but runs left queued by an earlier sync whose
+            # batch failed to start (e.g. a Bedrock error) must still be retried.
+            logger.info("No pending runs to promote; retrying already-queued runs")
 
         s3_started = process_s3_batch(
             event=event,
@@ -138,11 +134,16 @@ def start_ingestion_job(event, body, connection, kb_id, acting_user):
                 },
             )
 
+        if queued_count == 0:
+            error = "No pending or queued data sources found to sync."
+        else:
+            error = "Pending data sources were queued, but no eligible batch could be started."
+
         return _response(
             event,
             409,
             {
-                "error": "Pending data sources were queued, but no eligible batch could be started.",
+                "error": error,
                 "sync_session_id": sync_session_id,
                 "queued_count": queued_count,
                 "s3_result": s3_started,
