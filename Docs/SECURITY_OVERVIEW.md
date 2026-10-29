@@ -172,8 +172,8 @@ Specialization Explorer is an AI-powered conversational application that helps u
 | Rule Category | Protection |
 |---------------|------------|
 | **Managed Rules** | SQL injection, XSS, path traversal, and common attacks |
-| **Rate Limiting** | IP-based limits with authentication awareness |
-| **Endpoint Protection** | Stricter limits for expensive AI operations |
+| **Rate Limiting** | Per-IP limit on all requests |
+| **Endpoint Protection** | Stricter limits for expensive AI operations, account creation, and token issuance |
 
 ### 4.3 Request Validation
 

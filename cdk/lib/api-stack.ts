@@ -464,6 +464,79 @@ export class ApiGatewayStack extends cdk.Stack {
             metricName: "LimitExpensiveEndpoints",
           },
         },
+
+        // Rule 4: Strict limit on account creation (20 req/5min per IP). Each new user gets a fresh
+        // message quota, so this bounds how many identities one IP can mint. Matched on method and
+        // path, which a client cannot alter.
+        {
+          name: "LimitUserCreation",
+          priority: 4,
+          action: {
+            block: {},
+          },
+          statement: {
+            rateBasedStatement: {
+              limit: 20,
+              aggregateKeyType: "IP",
+              scopeDownStatement: {
+                andStatement: {
+                  statements: [
+                    {
+                      byteMatchStatement: {
+                        searchString: "POST",
+                        fieldToMatch: { method: {} },
+                        textTransformations: [{ priority: 0, type: "NONE" }],
+                        positionalConstraint: "EXACTLY",
+                      },
+                    },
+                    {
+                      byteMatchStatement: {
+                        searchString: "/user",
+                        fieldToMatch: { uriPath: {} },
+                        textTransformations: [{ priority: 0, type: "NONE" }],
+                        positionalConstraint: "EXACTLY",
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: "LimitUserCreation",
+          },
+        },
+
+        // Rule 5: Limit on token issuance (100 req/5min per IP). Every page load and 15-minute
+        // refresh calls this endpoint, so the limit leaves room for several users behind one IP.
+        {
+          name: "LimitPublicToken",
+          priority: 5,
+          action: {
+            block: {},
+          },
+          statement: {
+            rateBasedStatement: {
+              limit: 100,
+              aggregateKeyType: "IP",
+              scopeDownStatement: {
+                byteMatchStatement: {
+                  searchString: "/user/publicToken",
+                  fieldToMatch: { uriPath: {} },
+                  textTransformations: [{ priority: 0, type: "NONE" }],
+                  positionalConstraint: "EXACTLY",
+                },
+              },
+            },
+          },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: "LimitPublicToken",
+          },
+        },
       ],
     });
 
