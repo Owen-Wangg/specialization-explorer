@@ -920,7 +920,9 @@ export class ApiGatewayStack extends cdk.Stack {
           RDS_PROXY_ENDPOINT: db.rdsProxyEndpoint,
         },
         timeout: Duration.seconds(30),
-        memorySize: 128,
+        // Every page load waits on this function; Lambda CPU scales with memory, so 256 MB
+        // shortens cold starts (same size as the user and WebSocket authorizers)
+        memorySize: 256,
         role: jwtLambdaRole,
       }
     );
