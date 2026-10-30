@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 
 interface WebSocketMessage {
-  type: "start" | "chunk" | "complete" | "error" | "pong";
+  type: "start" | "chunk" | "complete" | "error";
   content?: string;
   message?: string;
   sources?: string[];
@@ -131,11 +131,6 @@ export const useWebSocket = (
           const message: WebSocketMessage = JSON.parse(event.data);
 
           console.log("[WebSocket] Received message");
-
-          if (message.type === "pong") {
-            console.log("[WebSocket] Received pong");
-            return;
-          }
 
           callbacksRef.current.onMessage?.(message);
         } catch (error) {
