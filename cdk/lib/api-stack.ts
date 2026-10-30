@@ -845,6 +845,7 @@ export class ApiGatewayStack extends cdk.Stack {
         memorySize: 512,
         layers: [jwt],
         role: lambdaRole,
+        tracing: lambda.Tracing.ACTIVE,
       }
     );
 
@@ -883,6 +884,7 @@ export class ApiGatewayStack extends cdk.Stack {
           JWT_SECRET: jwtSecret.secretArn,
         },
         functionName: `${id}-userLambdaAuthorizer`,
+        tracing: lambda.Tracing.ACTIVE,
       }
     );
     jwtSecret.grantRead(userAuthFunction);
@@ -925,6 +927,7 @@ export class ApiGatewayStack extends cdk.Stack {
         // shortens cold starts (same size as the user and WebSocket authorizers)
         memorySize: 256,
         role: jwtLambdaRole,
+        tracing: lambda.Tracing.ACTIVE,
       }
     );
 
@@ -963,6 +966,7 @@ export class ApiGatewayStack extends cdk.Stack {
       functionName: `${id}-preSignupLambda`,
       memorySize: 128,
       role: coglambdaRole,
+      tracing: lambda.Tracing.ACTIVE,
     });
 
     preSignupLambda.addEnvironment('ALLOWED_ORIGIN_PARAM', this.allowedOriginsParamName);
@@ -1018,6 +1022,7 @@ export class ApiGatewayStack extends cdk.Stack {
         memorySize: 128,
         layers: [postgres],
         role: coglambdaRole,
+        tracing: lambda.Tracing.ACTIVE,
       }
     );
     this.userPool.addTrigger(
