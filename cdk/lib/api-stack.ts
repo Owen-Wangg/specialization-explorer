@@ -700,20 +700,34 @@ export class ApiGatewayStack extends cdk.Stack {
       return role;
     };
 
-    const lambdaRole = createLambdaRole(`${id}-postgresLambdaRole`);
+    // One role per function, so a public handler cannot use permissions that only the
+    // text generation or knowledge base functions need
 
-    // Grant access to specific secrets instead of '*'
-    db.secretPathUser.grantRead(lambdaRole);
-    this.secret.grantRead(lambdaRole);
+    // REST handlers that only read the database credentials
+    const chatSessionFunctionRole = createLambdaRole(`${id}-chatSessionFunctionRole`);
+    db.secretPathUser.grantRead(chatSessionFunctionRole);
 
-    // Explicitly grant access to the KnowledgeBase ID secret without using a broad wildcard
-    lambdaRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ["secretsmanager:GetSecretValue"],
-        resources: [props.knowledgeBaseSecret.secretArn],
-      })
-    );
+    const userFunctionRole = createLambdaRole(`${id}-userFunctionRole`);
+    db.secretPathUser.grantRead(userFunctionRole);
+
+    const systemMessagesFunctionRole = createLambdaRole(`${id}-systemMessagesFunctionRole`);
+    db.secretPathUser.grantRead(systemMessagesFunctionRole);
+
+    // The admin authorizer reads only the Cognito pool and client ids
+    const adminAuthorizerRole = createLambdaRole(`${id}-adminAuthorizerRole`);
+    this.secret.grantRead(adminAuthorizerRole);
+
+    // Text generation reads the database credentials and the knowledge base id;
+    // its Bedrock and WebSocket permissions are added where the function is defined
+    const textGenRole = createLambdaRole(`${id}-textGenRole`);
+    db.secretPathUser.grantRead(textGenRole);
+    props.knowledgeBaseSecret.grantRead(textGenRole);
+
+    // The knowledge base function reads the database credentials and the knowledge base id;
+    // its S3, Bedrock agent and scheduler permissions are added where the function is defined
+    const knowledgeBaseFunctionRole = createLambdaRole(`${id}-knowledgeBaseFunctionRole`);
+    db.secretPathUser.grantRead(knowledgeBaseFunctionRole);
+    props.knowledgeBaseSecret.grantRead(knowledgeBaseFunctionRole);
 
     // Dedicated role for the admin function
     const adminFunctionRole = createLambdaRole(`${id}-adminFunctionRole`);
@@ -850,7 +864,7 @@ export class ApiGatewayStack extends cdk.Stack {
         functionName: `${id}-adminLambdaAuthorizer`,
         memorySize: 512,
         layers: [jwt],
-        role: lambdaRole,
+        role: adminAuthorizerRole,
         tracing: lambda.Tracing.ACTIVE,
       }
     );
@@ -1049,7 +1063,7 @@ export class ApiGatewayStack extends cdk.Stack {
         // 60 tokens/s is about 65 s, plus the guardrail, query rewrite, retrieval and verifier.
         // HTTP fallback requests use a smaller token cap to finish within the 29 s REST limit.
         timeout: cdk.Duration.seconds(90),
-        role: lambdaRole,
+        role: textGenRole,
         reservedConcurrentExecutions: 100,
         layers: [psycopgLayer, powertoolsLayer],
         vpc: vpcStack.vpc,
@@ -1065,12 +1079,6 @@ export class ApiGatewayStack extends cdk.Stack {
         },
       }
     )
-
-    // Grand Knowledge Base Secret Access 
-    lambdaTextGen.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["secretsmanager:GetSecretValue"],
-      resources: [props.knowledgeBaseSecret.secretArn]
-    }))
 
     // Grant SSM parameter access for HaikuArn and SonnetArn
       lambdaTextGen.addToRolePolicy(
@@ -1236,8 +1244,6 @@ export class ApiGatewayStack extends cdk.Stack {
     });
     lambdaTextGen.addToRolePolicy(textGenBedrockPolicyStatement);
 
-    // lambdaRole already has read access to db.secretPathUser through the stack-wide policy
-
 
 
     // --- Knowledge Base Lambda Function ---
@@ -1247,7 +1253,7 @@ export class ApiGatewayStack extends cdk.Stack {
       handler: "main.handler",
       code: lambda.Code.fromAsset("lambda/knowledgeBase"),
       timeout: Duration.seconds(300),
-      role: lambdaRole,
+      role: knowledgeBaseFunctionRole,
       layers: [psycopgLayer],
       memorySize: 512,
       vpc: vpcStack.vpc,
@@ -1313,8 +1319,6 @@ export class ApiGatewayStack extends cdk.Stack {
       sourceArn: `arn:aws:execute-api:${this.region}:${this.account}:${this.api.restApiId}/*/*/admin/*`,
     });
 
-    // lambdaRole already has read access to db.secretPathUser through the stack-wide policy
-
     // Tightly scopes S3 permissions to only the target knowledge base bucket
     props.knowledgeBaseBucket.grantReadWrite(lambdaKnowledgeBase);
 
@@ -1336,9 +1340,6 @@ export class ApiGatewayStack extends cdk.Stack {
         ],
       })
     );
-
-    // Grant access to read Knowledge Base ID
-    props.knowledgeBaseSecret.grantRead(lambdaKnowledgeBase);
 
     lambdaKnowledgeBase.addToRolePolicy(
       new iam.PolicyStatement({
@@ -1401,7 +1402,7 @@ export class ApiGatewayStack extends cdk.Stack {
       memorySize: 512,
       reservedConcurrentExecutions: 50,
       layers: [postgres],
-      role: lambdaRole,
+      role: userFunctionRole,
       tracing: lambda.Tracing.ACTIVE,
     });
 
@@ -1443,7 +1444,7 @@ export class ApiGatewayStack extends cdk.Stack {
       functionName: `${id}-systemMessagesFunction`,
       memorySize: 512,
       layers: [postgres],
-      role: lambdaRole,
+      role: systemMessagesFunctionRole,
       tracing: lambda.Tracing.ACTIVE,
     });
 
@@ -1488,7 +1489,7 @@ export class ApiGatewayStack extends cdk.Stack {
         functionName: `${id}-chatSessionFunction`,
         memorySize: 512,
         layers: [postgres],
-        role: lambdaRole,
+        role: chatSessionFunctionRole,
         tracing: lambda.Tracing.ACTIVE,
       }
     );
