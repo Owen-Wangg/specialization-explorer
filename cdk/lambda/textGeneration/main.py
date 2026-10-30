@@ -15,6 +15,16 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 def handler(event, context=None):
+    # Warm-up invocation from the WebSocket default route. Module imports have already run;
+    # opening the cached DB connection also moves the secret fetch and TLS handshake off
+    # the first real request. API Gateway events never carry a top-level "warmup" key.
+    if event.get('warmup') is True:
+        try:
+            get_db_connection()
+        except Exception as e:
+            logger.warning(f"Warm-up could not open a DB connection: {e}")
+        return {'statusCode': 200}
+
     # Log event but exclude body to prevent sensitive data exposure (user_id, chat_session_id)
     safe_event = {k: v for k, v in event.items() if k != 'body'}
     logger.info("Event: %s (body omitted)", json.dumps(safe_event))

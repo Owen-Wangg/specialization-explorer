@@ -28,6 +28,19 @@ exports.handler = async (event) => {
     const body = JSON.parse(event.body);
     const { action, query, chat_session_id, is_intro_message } = body;
 
+    // Sent by the chat page on load and periodically while it is open, so the text
+    // generation function is initialized before the user's first message arrives
+    if (action === "warmup") {
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: process.env.TEXT_GEN_FUNCTION_NAME,
+          InvocationType: "Event",
+          Payload: JSON.stringify({ warmup: true }),
+        })
+      );
+      return { statusCode: 200 };
+    }
+
     if (action === "generate_text") {
       // Identity comes from the authorizer on $connect, never from the message body
       const authenticatedUserId = event.requestContext?.authorizer?.userId;

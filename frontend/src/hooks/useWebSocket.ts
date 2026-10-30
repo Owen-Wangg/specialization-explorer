@@ -7,6 +7,10 @@ interface WebSocketMessage {
   sources?: string[];
 }
 
+// Lambda does not guarantee how long an idle execution environment survives; 5 minutes is a
+// common keep-warm interval and stays under API Gateway's 10 minute WebSocket idle timeout
+const WARMUP_INTERVAL_MS = 5 * 60 * 1000;
+
 interface UseWebSocketOptions {
   onMessage?: (message: WebSocketMessage) => void;
   onConnect?: () => void;
@@ -31,21 +35,16 @@ export const useWebSocket = (
   const callbacksRef = useRef(options);
   callbacksRef.current = options;
 
-  const startHeartbeat = useCallback(() => {
-    if (heartbeatIntervalRef.current) {
-      window.clearInterval(heartbeatIntervalRef.current);
-    }
-
-    heartbeatIntervalRef.current = window.setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        try {
-          wsRef.current.send(JSON.stringify({ type: "ping" }));
-          console.log("[WebSocket] Sent ping");
-        } catch (error) {
-          console.error("[WebSocket] Error sending ping:", error);
-        }
+  // Asks the server to warm the text generation Lambda so the next message skips its cold start.
+  // The same message keeps the connection inside API Gateway's 10 minute idle timeout.
+  const sendWarmup = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ action: "warmup" }));
+      } catch (error) {
+        console.error("[WebSocket] Error sending warm-up:", error);
       }
-    }, 30000);
+    }
   }, []);
 
   const stopHeartbeat = useCallback(() => {
@@ -54,6 +53,19 @@ export const useWebSocket = (
       heartbeatIntervalRef.current = null;
     }
   }, []);
+
+  // Warm immediately, then repeat only while the tab is visible
+  const startHeartbeat = useCallback(() => {
+    stopHeartbeat();
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+    sendWarmup();
+    heartbeatIntervalRef.current = window.setInterval(
+      sendWarmup,
+      WARMUP_INTERVAL_MS
+    );
+  }, [sendWarmup, stopHeartbeat]);
 
   const scheduleReconnect = useCallback(() => {
     if (isManualDisconnectRef.current) {
@@ -219,6 +231,29 @@ export const useWebSocket = (
       connect();
     }, 1000);
   }, [disconnect, connect]);
+
+  // Stop warming while the tab is hidden. When it becomes visible again, warm right away,
+  // reconnecting first if API Gateway closed the idle connection in the meantime.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        stopHeartbeat();
+        return;
+      }
+
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        startHeartbeat();
+      } else if (url && !isManualDisconnectRef.current) {
+        reconnectAttemptsRef.current = 0;
+        connect();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [url, connect, startHeartbeat, stopHeartbeat]);
 
   // Only depend on URL changes, not callback changes
   useEffect(() => {
