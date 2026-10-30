@@ -32,20 +32,18 @@ def fetch_recent_messages(
     chat_session_id: str,
 ) -> List[Dict[str, Any]]:    
     """
-    Fetch recent messages for a chat session (oldest->newest).
+    Fetch the 20 most recent messages for a chat session, returned oldest->newest.
+    Only sender and content are needed to build the model context.
     """
     with db_connection.cursor() as cur:
-        # Note: Added 'sources' (LIMIT 20 is small enough to include full json) or keep it lightweight
-        # Previous implementation kept it lightweight. But chat.py retrieves sources?
-        # Actually fetch_recent_messages is used for context. Context needs content only?
-        # Check chat.py usage. It uses msg['sender'] and msg['content'].
-        # So current query is fine.
+        # Newest first so LIMIT keeps the latest turns. The order matches the
+        # idx_chat_messages_session_created_at index (chat_session_id, created_at, id).
         cur.execute(
             """
             SELECT sender, content, created_at
             FROM chat_messages
             WHERE chat_session_id = %s
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC, id DESC
             LIMIT %s
             """,
             (chat_session_id, 20)
@@ -53,7 +51,7 @@ def fetch_recent_messages(
         rows = cur.fetchall()
 
     messages = []
-    for sender, content, created_at in rows:
+    for sender, content, created_at in reversed(rows):
         messages.append({
             "sender": sender,          # 'user' or 'AI'
             "content": content,
