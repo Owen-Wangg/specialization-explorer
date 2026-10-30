@@ -529,7 +529,7 @@ def _create_ingestion_polling_schedule(
     sync_session_id: str,
 ) -> str:
     """
-    Create the 30-minute scheduler that polls the website ingestion job.
+    Create the 10-minute scheduler that polls the website ingestion job.
 
     The scheduler payload carries the sync session ID and the database run IDs
     so update_status can later update all affected website runs together.
@@ -550,7 +550,9 @@ def _create_ingestion_polling_schedule(
     scheduler_client.create_schedule(
         Name=schedule_name,
         GroupName="default",
-        ScheduleExpression="rate(30 minutes)",
+        # A web crawl takes at least ~5 minutes, so polling more often than 10 minutes rarely
+        # finds it done sooner, and 10 minutes stays well above the Lambda's 300 s timeout.
+        ScheduleExpression="rate(10 minutes)",
         FlexibleTimeWindow={"Mode": "OFF"},
         State="ENABLED",
         Target={
@@ -615,7 +617,7 @@ def process_website_batch(event, connection, kb_id, sync_session_id: str, trigge
     - selects the next queued website batch with compatible filters
     - updates an existing crawler or creates a new one
     - starts the Bedrock ingestion job
-    - creates the 30-minute polling scheduler
+    - creates the 10-minute polling scheduler
     - marks the selected database runs as running
 
     It returns a structured result describing whether the phase started and

@@ -676,7 +676,7 @@ If the system already has the maximum number of web crawlers, the phase returns:
 After selecting or creating a target crawler, the helper:
 
 1. Starts a Bedrock ingestion job for the web crawler
-2. Creates a 30-minute EventBridge Scheduler schedule
+2. Creates a 10-minute EventBridge Scheduler schedule
 3. Marks the selected website runs as `running`
 4. Stores job metadata on the runs
 
@@ -697,7 +697,7 @@ The schedule name uses this format:
 kb-web-{sync_session_id}-{random_suffix}
 ```
 
-The scheduler invokes the same Lambda every 30 minutes until the job reaches a terminal state.
+The scheduler invokes the same Lambda every 10 minutes until the job reaches a terminal state.
 
 ## Polling and Workflow Continuation
 
@@ -958,7 +958,7 @@ The scheduler intervals are:
 | Phase   | Polling Interval |
 | ------- | ---------------- |
 | S3      | 5 minutes        |
-| Website | 30 minutes       |
+| Website | 10 minutes       |
 
 ### Why the same Lambda handles API and polling events
 
