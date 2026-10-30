@@ -239,7 +239,10 @@ export class ApiGatewayStack extends cdk.Stack {
         requireSymbols: true,
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      // User accounts cannot be backed up with AWS Backup, so the pool is kept if the stack
+      // is deleted, and deletion protection blocks deleting it directly
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deletionProtection: true,
     });
 
     // Create app client
