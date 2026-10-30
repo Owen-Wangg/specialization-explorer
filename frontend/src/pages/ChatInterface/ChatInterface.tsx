@@ -458,6 +458,8 @@ export default function AIChatPage() {
     setIsStreaming(true);
 
     const promptText = WELCOME_PROMPT;
+    // Saved as the id of the intro prompt, so a repeated request is not answered twice
+    const introMessageId = crypto.randomUUID();
 
     // Try WebSocket streaming first, fallback to HTTP if not connected
     if (isConnected && webSocketUrl) {
@@ -467,6 +469,7 @@ export default function AIChatPage() {
         query: promptText,
         chat_session_id: activeChatSessionId,
         is_intro_message: true,
+        message_id: introMessageId,
       });
 
       if (!success) {
@@ -491,6 +494,7 @@ export default function AIChatPage() {
               query: promptText,
               chat_session_id: activeChatSessionId,
               is_intro_message: true,
+              message_id: introMessageId,
             }),
           }
         );
@@ -571,9 +575,10 @@ export default function AIChatPage() {
     // Ensure we have an active chat session
     if (!activeChatSessionId) return;
 
-    // Create user message for AI generation
+    // Create user message for AI generation. The id is sent with the request and saved as the
+    // message's id, so the same request is never saved or answered twice.
     const userMsg: Message = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      id: crypto.randomUUID(),
       sender: "user",
       text,
       time: Date.now(),
@@ -605,6 +610,7 @@ export default function AIChatPage() {
         action: "generate_text",
         query: text,
         chat_session_id: activeChatSessionId,
+        message_id: userMsg.id,
       });
 
       if (success) {
@@ -647,6 +653,7 @@ export default function AIChatPage() {
           body: JSON.stringify({
             query: text,
             chat_session_id: activeChatSessionId,
+            message_id: userMsg.id,
           }),
         }
       );

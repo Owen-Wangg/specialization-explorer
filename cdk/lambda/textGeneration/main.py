@@ -54,6 +54,17 @@ def handler(event, context=None):
 
     query = body.get('query')
     is_intro_message = body.get('is_intro_message', False)
+
+    # Optional client-generated id for the user message; a repeated id is not processed twice
+    message_id = body.get('message_id')
+    if message_id is not None:
+        try:
+            message_id = str(uuid.UUID(str(message_id)))
+        except ValueError:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'message_id must be a valid UUID'})
+            }
     
     # The session comes from the route; the identity comes from the verified token
     path_parameters = event.get('pathParameters') or {}
@@ -150,7 +161,8 @@ def handler(event, context=None):
             user_id=user_id,
             db_connection=conn,
             stream_callback=stream_chunk,
-            is_intro_message=is_intro_message
+            is_intro_message=is_intro_message,
+            user_message_id=message_id
         )
         
         # Format response to match API contract
@@ -168,11 +180,25 @@ def handler(event, context=None):
             status_code = 429
             response_body["error"] = "TOKEN_LIMIT_EXCEEDED"
             response_body["message"] = response_body["response"]
+        elif response_data.get("duplicate_message"):
+            status_code = 409
+            response_body["error"] = "DUPLICATE_MESSAGE"
+            response_body["message"] = response_body["response"]
             
         # Send WebSocket complete message
         if apigw_management and connection_id:
             try:
-                if status_code == 429:
+                if status_code == 409:
+                    apigw_management.post_to_connection(
+                        ConnectionId=connection_id,
+                        Data=json.dumps({
+                            'type': 'error',
+                            'error': 'DUPLICATE_MESSAGE',
+                            'message': response_body['message'],
+                        })
+                    )
+                    logger.info(f"Sent WebSocket duplicate message error to {connection_id}")
+                elif status_code == 429:
                     # Send specific error over WS for token limits
                     error_msg = {
                         'type': 'error',
@@ -210,6 +236,10 @@ def handler(event, context=None):
         
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)
+        if (event.get('requestContext') or {}).get('connectionId'):
+            # WebSocket requests are invoked asynchronously and nobody reads the return value.
+            # Raising sends the event to the on-failure destination, which notifies the client.
+            raise
         return {
             'statusCode': 500,
             'headers': { 'Content-Type': 'application/json', **get_cors_headers(event if 'event' in locals() else {}) },

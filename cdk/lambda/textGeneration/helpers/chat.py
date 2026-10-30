@@ -7,7 +7,8 @@ from typing import Dict, Any, Optional, List, Tuple
 from helpers.tracing import tracer
 
 from helpers.crud import (
-    fetch_recent_messages, ensure_session_exists, insert_message, update_last_active_session
+    fetch_recent_messages, ensure_session_exists, insert_message, update_last_active_session,
+    DuplicateMessageError
 )
 from helpers.logic import get_current_prompt
 from helpers.bedrock import retrieve_documents, format_context_for_prompt
@@ -83,7 +84,8 @@ def _prepare_conversation(
     user_id: Optional[str],
     db_connection,
     search_type: Optional[str] = None,
-    save_user_message: bool = True
+    save_user_message: bool = True,
+    user_message_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], str, List[Dict[str, Any]], str]:
     """
     Handles validation, history fetching, user msg saving, retrieval, and prompt construction.
@@ -110,10 +112,14 @@ def _prepare_conversation(
                 "user",
                 query,
                 sources=None,
-                warning=None
+                warning=None,
+                message_id=user_message_id
             )
             update_last_active_session(db_connection, chat_session_id)
             db_connection.commit()
+    except DuplicateMessageError:
+        db_connection.rollback()
+        raise
     except Exception as e:
         db_connection.rollback()
         logger.error(f"DB Error: {e}")
@@ -231,6 +237,7 @@ def get_response(
     save_user_message: bool = True,
     stream_callback=None,
     is_intro_message: bool = False,
+    user_message_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     
     usage_info = {}
@@ -275,9 +282,15 @@ def get_response(
                 denial_text = guardrail_result['text']
                 try:
                     ensure_session_exists(db_connection, chat_session_id, user_id)
-                    insert_message(db_connection, chat_session_id, 'user', query, sources=None, warning=None)
+                    insert_message(
+                        db_connection, chat_session_id, 'user', query,
+                        sources=None, warning=None, message_id=user_message_id
+                    )
                     update_last_active_session(db_connection, chat_session_id)
                     db_connection.commit()
+                except DuplicateMessageError:
+                    db_connection.rollback()
+                    raise
                 except Exception as db_err:
                     db_connection.rollback()
                     logger.error(f"DB error saving user message on intervention: {db_err}")
@@ -305,12 +318,24 @@ def get_response(
             chat_session_id,
             user_id,
             db_connection,
-            save_user_message=save_user_message
+            save_user_message=save_user_message,
+            user_message_id=user_message_id
         )
 
         if save_user_message:
             usage_info = record_message_sent(user_id, db_connection)
 
+    except DuplicateMessageError:
+        # The same request was already received; answering again would save a second reply
+        logger.warning("Ignoring a repeated request for a message that is already saved")
+        return {
+            "response": "This message has already been received.",
+            "sources_used": [],
+            "sessionId": chat_session_id,
+            "duplicate_message": True,
+            "warning": None,
+            "intervention": None,
+        }
     except ValueError as e:
         return {
             "response": str(e),

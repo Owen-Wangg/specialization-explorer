@@ -23,6 +23,9 @@ import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as bedrock from "aws-cdk-lib/aws-bedrock";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as lambdaDestinations from "aws-cdk-lib/aws-lambda-destinations";
+import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as crypto from 'crypto';
 
 function computeConfigHash(config: object): string {
@@ -1636,6 +1639,88 @@ export class ApiGatewayStack extends cdk.Stack {
     // Grant the default function permission to invoke the text generation function
     lambdaTextGen.grantInvoke(defaultFunction);
 
+    // --- Async text generation failure path ---
+    // The default route invokes text generation asynchronously. A retry would replay a request
+    // whose user message is already saved and whose answer was partly streamed, and a throttled
+    // event that arrives minutes later has no client waiting for it. So failed or expired events
+    // are not retried; they go to a queue, and a handler tells the client the request failed.
+    // https://docs.aws.amazon.com/lambda/latest/dg/invocation-async-retain-records.html
+    const textGenFailureDlq = new sqs.Queue(this, `${id}-TextGenFailureDLQ`, {
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: Duration.days(4),
+    });
+
+    // Records include the user's query, so they are kept only briefly
+    const textGenFailureQueue = new sqs.Queue(this, `${id}-TextGenFailureQueue`, {
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: Duration.days(1),
+      // AWS recommends at least six times the consumer function timeout
+      visibilityTimeout: Duration.seconds(60),
+      deadLetterQueue: { queue: textGenFailureDlq, maxReceiveCount: 3 },
+    });
+
+    lambdaTextGen.configureAsyncInvoke({
+      retryAttempts: 0,
+      maxEventAge: Duration.minutes(2),
+      onFailure: new lambdaDestinations.SqsDestination(textGenFailureQueue),
+    });
+
+    const textGenFailureFunction = new lambda.Function(this, `${id}-TextGenFailureFunction`, {
+      functionName: `${id}-TextGenFailureFunction`,
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: "asyncFailure.handler",
+      code: lambda.Code.fromAsset("lambda/websocket"),
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      reservedConcurrentExecutions: 10,
+      tracing: lambda.Tracing.ACTIVE,
+    });
+    textGenFailureFunction.addToRolePolicy(wsPolicy);
+    textGenFailureFunction.addEventSource(
+      new lambdaEventSources.SqsEventSource(textGenFailureQueue, {
+        batchSize: 10,
+        reportBatchItemFailures: true,
+      })
+    );
+
+    new cloudwatch.Alarm(this, 'TextGenAsyncFailureAlarm', {
+      metric: textGenFailureQueue.metricNumberOfMessagesSent({
+        period: Duration.minutes(5),
+        statistic: cloudwatch.Stats.SUM,
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Asynchronous text generation requests failed or expired before running',
+    });
+
+    new cloudwatch.Alarm(this, 'TextGenFailureDestinationAlarm', {
+      metric: lambdaTextGen.metric('DestinationDeliveryFailures', {
+        period: Duration.minutes(5),
+        statistic: cloudwatch.Stats.SUM,
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Failed text generation events could not be delivered to the failure queue',
+    });
+
+    new cloudwatch.Alarm(this, 'TextGenFailureDlqAlarm', {
+      metric: textGenFailureDlq.metricApproximateNumberOfMessagesVisible({
+        period: Duration.minutes(5),
+        statistic: cloudwatch.Stats.MAXIMUM,
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'The text generation failure handler could not process failure records',
+    });
+
     // Routes
     new apigatewayv2.WebSocketRoute(this, `${id}-ConnectRoute`, {
       webSocketApi: this.webSocketApi,
@@ -1709,6 +1794,11 @@ export class ApiGatewayStack extends cdk.Stack {
 
     // Add environment variable to text generation function (include stage name)
     lambdaTextGen.addEnvironment(
+      "WEBSOCKET_API_ENDPOINT",
+      `${this.webSocketApi.apiEndpoint}/${this.wsStage.stageName}`
+    );
+    // The failure handler posts to this endpoint rather than one taken from the failure record
+    textGenFailureFunction.addEnvironment(
       "WEBSOCKET_API_ENDPOINT",
       `${this.webSocketApi.apiEndpoint}/${this.wsStage.stageName}`
     );

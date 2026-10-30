@@ -26,7 +26,7 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body);
-    const { action, query, chat_session_id, is_intro_message } = body;
+    const { action, query, chat_session_id, is_intro_message, message_id } = body;
 
     // Sent by the chat page on load and periodically while it is open, so the text
     // generation function is initialized before the user's first message arrives
@@ -60,6 +60,14 @@ exports.handler = async (event) => {
         return { statusCode: 400, body: JSON.stringify({ error: sessionValidation.error }) };
       }
 
+      // Client-generated id for the user message, so a repeated request is not saved or answered twice
+      if (message_id !== undefined) {
+        const messageIdValidation = validateUUID(message_id, "message_id");
+        if (!messageIdValidation.valid) {
+          return { statusCode: 400, body: JSON.stringify({ error: messageIdValidation.error }) };
+        }
+      }
+
       // Invoke the text generation Lambda function
       const textGenPayload = {
         pathParameters: {
@@ -67,7 +75,8 @@ exports.handler = async (event) => {
         },
         body: JSON.stringify({
           query: sanitizedQuery,
-          is_intro_message: is_intro_message
+          is_intro_message: is_intro_message,
+          ...(message_id !== undefined && { message_id: message_id.trim() }),
         }),
         requestContext: {
           connectionId: event.requestContext.connectionId,

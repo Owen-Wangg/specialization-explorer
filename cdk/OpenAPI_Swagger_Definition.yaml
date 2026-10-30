@@ -1506,6 +1506,10 @@ paths:
               properties:
                 query:
                   type: string
+                message_id:
+                  type: string
+                  format: uuid
+                  description: Client-generated id for the user message. A request that repeats an id that is already saved is rejected with 409.
       responses:
         "200":
           description: Generated text response
@@ -1524,6 +1528,8 @@ paths:
           description: Invalid request
         "404":
           description: Chat session not found
+        "409":
+          description: A message with this message_id has already been received
         "500":
           description: Internal Server Error
       x-amazon-apigateway-integration:

@@ -7,6 +7,11 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
+class DuplicateMessageError(Exception):
+    """Raised when a message with the client-supplied id has already been saved."""
+
+
 def get_exchange_count(chat_session_id: str, db_connection) -> int:
     """
     Counts the number of exchanges (User + AI pairs) in a session.
@@ -96,9 +101,16 @@ def insert_message(
     sender: str,
     content: str,
     sources: Optional[List[Dict[str, Any]]] = None,
-    warning: Optional[str] = None
+    warning: Optional[str] = None,
+    message_id: Optional[str] = None,
 ) -> str:
-    message_id = str(uuid.uuid4())
+    """
+    Inserts a chat message. When the caller supplies message_id (a client-generated UUID),
+    the insert is idempotent: if a row with that id already exists, nothing is written and
+    DuplicateMessageError is raised so the request is not processed a second time.
+    """
+    client_supplied_id = message_id is not None
+    message_id = message_id or str(uuid.uuid4())
     sources_json = json.dumps(sources or [])
     try:
         with db_connection.cursor() as cur:
@@ -106,12 +118,20 @@ def insert_message(
                 """
                 INSERT INTO chat_messages (id, chat_session_id, sender, content, sources, warning, created_at)
                 VALUES (%s, %s, %s, %s, %s::jsonb, %s, NOW())
+                ON CONFLICT (id) DO NOTHING
+                RETURNING id
                 """,
                 (message_id, chat_session_id, sender, content, sources_json, warning)
             )
+            inserted = cur.fetchone()
     except Exception as e:
         logger.error(f"insert_message failed: {e}")
         raise e
+    if inserted is None:
+        if client_supplied_id:
+            raise DuplicateMessageError("A message with this id has already been saved")
+        # A server-generated UUID collided with an existing row; treat it as a failed insert
+        raise RuntimeError("insert_message did not insert a row")
     return message_id
 
 def update_last_active_session(db_connection, chat_session_id: str) -> None:
