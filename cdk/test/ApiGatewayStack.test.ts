@@ -186,3 +186,45 @@ describe("Cognito user pool", () => {
     });
   });
 });
+
+describe("WAF and WebSocket rate limiting", () => {
+  test("the web ACL includes the IP reputation and known bad inputs rule groups", () => {
+    const acl = Object.values(resources).find((r) => r.Type === "AWS::WAFv2::WebACL")!;
+    const managed = acl.Properties.Rules.map(
+      (rule: any) => rule.Statement.ManagedRuleGroupStatement?.Name
+    );
+    expect(managed).toEqual(
+      expect.arrayContaining([
+        "AWSManagedRulesAmazonIpReputationList",
+        "AWSManagedRulesKnownBadInputsRuleSet",
+        "AWSManagedRulesCommonRuleSet",
+      ])
+    );
+    const priorities = acl.Properties.Rules.map((rule: any) => rule.Priority);
+    expect(new Set(priorities).size).toBe(priorities.length);
+  });
+
+  test("WAF logs blocked and counted requests to a 90-day log group with tokens redacted", () => {
+    template.hasResourceProperties("AWS::Logs::LogGroup", {
+      LogGroupName: "aws-waf-logs-test-Api",
+      RetentionInDays: 90,
+    });
+    template.hasResourceProperties("AWS::WAFv2::LoggingConfiguration", {
+      RedactedFields: [{ SingleHeader: { Name: "authorization" } }],
+      LoggingFilter: { DefaultBehavior: "DROP" },
+    });
+  });
+
+  test("the WebSocket default route can only update the rate limit table", () => {
+    template.hasResourceProperties("AWS::DynamoDB::GlobalTable", {
+      TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+      BillingMode: "PAY_PER_REQUEST",
+    });
+    const actions = actionsOf(
+      Object.entries(resources).find(
+        ([, r]) => r.Type === "AWS::Lambda::Function" && r.Properties.Handler === "default.handler"
+      )![0]
+    );
+    expect(matching(actions, /^dynamodb:/)).toEqual(["dynamodb:UpdateItem"]);
+  });
+});

@@ -26,6 +26,7 @@ import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as lambdaDestinations from "aws-cdk-lib/aws-lambda-destinations";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as crypto from 'crypto';
 
 function computeConfigHash(config: object): string {
@@ -417,6 +418,26 @@ export class ApiGatewayStack extends cdk.Stack {
         metricName: "specEx-firewall",
       },
       rules: [
+        // Rule 0: AWS Managed IP reputation list (known botnets, scanners and other sources
+        // AWS threat intelligence has flagged). Evaluated first, so these IPs are not counted
+        // against the rate limits of other clients.
+        {
+          name: "AWS-AWSManagedRulesAmazonIpReputationList",
+          priority: 0,
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: "AWS",
+              name: "AWSManagedRulesAmazonIpReputationList",
+            },
+          },
+          overrideAction: { none: {} },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: "AWS-AWSManagedRulesAmazonIpReputationList",
+          },
+        },
+
         // Rule 1: AWS Managed Common Rule Set (SQL injection, XSS, etc.)
         // SizeRestrictions_BODY is counted only, since batch admin endpoints send large JSON payloads
         {
@@ -500,7 +521,9 @@ export class ApiGatewayStack extends cdk.Stack {
 
         // Rule 4: Strict limit on account creation (20 req/5min per IP). Each new user gets a fresh
         // message quota, so this bounds how many identities one IP can mint. Matched on method and
-        // path, which a client cannot alter.
+        // path, which a client cannot alter. It is not set lower because a class on a shared
+        // campus network reaches the API from a few NAT addresses; the per-user WebSocket rate
+        // limit and the daily quota bound what each identity can send.
         {
           name: "LimitUserCreation",
           priority: 4,
@@ -570,7 +593,64 @@ export class ApiGatewayStack extends cdk.Stack {
             metricName: "LimitPublicToken",
           },
         },
+
+        // Rule 6: AWS Managed Known Bad Inputs (Log4j/JNDI lookups, Java deserialization,
+        // localhost Host headers and other request patterns tied to known exploits)
+        {
+          name: "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+          priority: 6,
+          statement: {
+            managedRuleGroupStatement: {
+              vendorName: "AWS",
+              name: "AWSManagedRulesKnownBadInputsRuleSet",
+            },
+          },
+          overrideAction: { none: {} },
+          visibilityConfig: {
+            sampledRequestsEnabled: true,
+            cloudWatchMetricsEnabled: true,
+            metricName: "AWS-AWSManagedRulesKnownBadInputsRuleSet",
+          },
+        },
       ],
+    });
+
+    // WAF logs for investigating blocked and counted requests. Allowed requests are already in
+    // the API access logs, so only requests a rule blocked or counted are kept, which limits
+    // log volume and cost. The name must start with "aws-waf-logs-"; WAF adds the log group
+    // resource policy it needs when logging is turned on.
+    // https://docs.aws.amazon.com/waf/latest/developerguide/logging-cw-logs.html
+    const wafLogGroup = new logs.LogGroup(this, `${id}-WafLogs`, {
+      logGroupName: `aws-waf-logs-${id}`,
+      retention: logs.RetentionDays.THREE_MONTHS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    new wafv2.CfnLoggingConfiguration(this, `${id}-WafLogging`, {
+      resourceArn: waf.attrArn,
+      // WAF needs the log group ARN without the ":*" suffix that logGroupArn carries
+      logDestinationConfigs: [
+        this.formatArn({
+          service: "logs",
+          resource: "log-group",
+          resourceName: wafLogGroup.logGroupName,
+          arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME,
+        }),
+      ],
+      // Admin requests carry a Cognito token and student requests a signed user token
+      redactedFields: [{ singleHeader: { Name: "authorization" } }],
+      loggingFilter: {
+        DefaultBehavior: "DROP",
+        Filters: [
+          {
+            Behavior: "KEEP",
+            Requirement: "MEETS_ANY",
+            Conditions: ["BLOCK", "COUNT", "EXCLUDED_AS_COUNT", "CAPTCHA", "CHALLENGE"].map(
+              (action) => ({ ActionCondition: { Action: action } })
+            ),
+          },
+        ],
+      },
     });
 
     // Custom Response for WAF Blocks (Returns 429 instead of 403)
@@ -1673,6 +1753,22 @@ export class ApiGatewayStack extends cdk.Stack {
       alarmDescription: 'WebSocket Default Lambda approaching concurrency limit',
     });
 
+    // Per-user message rate for the WebSocket API, which WAF cannot be associated with.
+    // Each item is one user's counter for one 60-second window and expires through TTL,
+    // so the table holds no history; it has no point-in-time recovery and is not retained.
+    const wsRateLimitTable = new dynamodb.TableV2(this, `${id}-WebSocketRateLimits`, {
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      billing: dynamodb.Billing.onDemand(),
+      timeToLiveAttribute: "expiresAt",
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    wsRateLimitTable.grant(defaultFunction, "dynamodb:UpdateItem");
+    defaultFunction.addEnvironment("RATE_LIMIT_TABLE_NAME", wsRateLimitTable.tableName);
+    // A reply streams for 10 to 60 seconds, so 10 messages a minute is well above normal use.
+    // The chat page sends a warm-up every 5 minutes.
+    defaultFunction.addEnvironment("MESSAGE_RATE_LIMIT_PER_MINUTE", "10");
+    defaultFunction.addEnvironment("WARMUP_RATE_LIMIT_PER_MINUTE", "2");
+
     defaultFunction.addEnvironment('ALLOWED_ORIGIN_PARAM', this.allowedOriginsParamName);
     defaultFunction.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -1865,6 +1961,11 @@ export class ApiGatewayStack extends cdk.Stack {
     );
     // The failure handler posts to this endpoint rather than one taken from the failure record
     textGenFailureFunction.addEnvironment(
+      "WEBSOCKET_API_ENDPOINT",
+      `${this.webSocketApi.apiEndpoint}/${this.wsStage.stageName}`
+    );
+    // The default route posts rate limit errors to this endpoint
+    defaultFunction.addEnvironment(
       "WEBSOCKET_API_ENDPOINT",
       `${this.webSocketApi.apiEndpoint}/${this.wsStage.stageName}`
     );

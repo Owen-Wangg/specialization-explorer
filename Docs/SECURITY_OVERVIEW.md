@@ -181,11 +181,21 @@ Specialization Explorer is an AI-powered conversational application that helps u
 
 | Rule Category | Protection |
 |---------------|------------|
+| **IP Reputation** | Blocks sources on the AWS threat intelligence IP reputation list |
 | **Managed Rules** | SQL injection, XSS, path traversal, and common attacks |
+| **Known Bad Inputs** | Log4j/JNDI lookups, Java deserialization and other known exploit patterns |
 | **Rate Limiting** | Per-IP limit on all requests |
 | **Endpoint Protection** | Stricter limits for expensive AI operations, account creation, and token issuance |
 
-### 4.3 Request Validation
+WAF logs requests that a rule blocked or counted to the `aws-waf-logs-<stack>` CloudWatch log group, with the `Authorization` header redacted. Allowed requests are in the API access logs.
+
+### 4.3 WebSocket Rate Limiting
+
+WAF cannot be associated with a WebSocket API, and chat replies stream over the WebSocket API. The default route therefore limits each user to 10 messages a minute (and 2 warm-ups a minute) before it invokes text generation. Counters are kept in a DynamoDB table with one item per user per minute, removed by TTL. The limit is keyed on the user, so opening extra connections does not raise it. If the counter cannot be checked, the message is refused. The stage throttle and the per-user daily message quota still apply.
+
+Each new anonymous user gets a fresh daily quota. Account creation is limited to 20 per IP every 5 minutes. The limit is not lower because a class on a shared campus network reaches the API from a few NAT addresses. A WAF CAPTCHA or Challenge on `POST /user` would tighten this further, but it needs the WAF client integration script in the frontend and is billed per challenge.
+
+### 4.4 Request Validation
 
 | Control | Detail |
 |---------|--------|
@@ -193,7 +203,7 @@ Specialization Explorer is an AI-powered conversational application that helps u
 | **Input Sanitization** | UUID format, length limits, enum validation |
 | **Parameterized Queries** | SQL injection prevention at the database layer |
 
-### 4.4 CORS Configuration
+### 4.5 CORS Configuration
 
 - Dynamic origin validation from configuration
 - Restricted to known application domains
@@ -440,6 +450,7 @@ For guardrail configuration details, see [`Docs/BEDROCK_GUARDRAILS.md`](./BEDROC
 | Log Type | Content | Retention |
 |----------|---------|-----------|
 | **API Access Logs** | Request metadata, status codes, latency | 1 week |
+| **WAF Logs** | Blocked and counted requests, `Authorization` header redacted | 90 days |
 | **Lambda Logs** | Function execution, errors (body excluded) | 1 week |
 | **VPC Flow Logs** | Network traffic metadata | Configurable |
 | **WebSocket Logs** | Connection events, route keys | 1 week |
