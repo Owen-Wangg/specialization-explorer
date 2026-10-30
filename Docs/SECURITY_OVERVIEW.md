@@ -248,7 +248,7 @@ Each new anonymous user gets a fresh daily quota. Account creation is limited to
 | Control | Implementation |
 |---------|----------------|
 | **Subnet Isolation** | Database in isolated subnets with no internet route |
-| **Security Groups** | Scoped ingress rules, VPC CIDR only |
+| **Security Groups** | The database admits only the RDS Proxy, secret rotation and database initializer security groups; the proxy admits the private and isolated subnet ranges |
 | **VPC Endpoints** | Private connectivity to AWS services (no public internet) |
 | **VPC Flow Logs** | Network traffic auditing |
 
@@ -258,6 +258,7 @@ Each new anonymous user gets a fresh daily quota. Account creation is limited to
 |------------|----------|
 | API Gateway | HTTPS / TLS 1.2+ (HTTP not accepted) |
 | WebSocket | WSS |
+| Lambda → RDS Proxy | TLS with certificate and host name verification (Node.js: built-in roots; Python: `verify-full` against the bundled Amazon Trust Services roots) |
 | RDS Proxy → Database | TLS required |
 | Lambda → AWS services | TLS via VPC endpoints |
 
