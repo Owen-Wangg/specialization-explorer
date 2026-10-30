@@ -120,11 +120,14 @@ export class ApiGatewayStack extends cdk.Stack {
           }),
         });
 
-    // powertoolsLayer does not follow the format of layerList
+    // powertoolsLayer does not follow the format of layerList.
+    // Powertools v3 layers are built per Python version and architecture; this one matches the
+    // Python 3.12 x86_64 text generation function. Pinned to a published layer version.
+    // https://docs.aws.amazon.com/powertools/python/latest/getting-started/install/
     const powertoolsLayer = lambda.LayerVersion.fromLayerVersionArn(
       this,
       `${id}-PowertoolsLayer`,
-      `arn:aws:lambda:${this.region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:78`
+      `arn:aws:lambda:${this.region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python312-x86_64:41`
     );
 
     this.layerList["jwt"] = jwt;
