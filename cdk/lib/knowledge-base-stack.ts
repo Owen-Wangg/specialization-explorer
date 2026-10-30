@@ -279,9 +279,16 @@ export class KnowledgeBaseStack extends Stack {
     });
     vectorIndexManagerFn.node.addDependency(ecrImageWaiter);
 
+    // The pipeline publishes a version for each scanned image and moves this alias to it,
+    // so the provider always runs a known version and can be rolled back by moving the alias
+    const vectorIndexManagerLive = new lambda.Alias(this, "VectorIndexManagerLive", {
+      aliasName: "live",
+      version: vectorIndexManagerFn.currentVersion,
+    });
+
     const vectorIndexProvider = new Provider(this, "VectorIndexProvider", {
-      onEventHandler: vectorIndexManagerFn,
-      isCompleteHandler: vectorIndexManagerFn,
+      onEventHandler: vectorIndexManagerLive,
+      isCompleteHandler: vectorIndexManagerLive,
       queryInterval: cdk.Duration.seconds(30),
       totalTimeout: cdk.Duration.minutes(30),
     });
