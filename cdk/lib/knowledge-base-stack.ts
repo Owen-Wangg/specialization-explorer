@@ -181,10 +181,12 @@ export class KnowledgeBaseStack extends Stack {
 
     // Use account and region for uniqueness (see https://aws.amazon.com/blogs/aws/introducing-account-regional-namespaces-for-amazon-s3-general-purpose-buckets/)
     // CORS is configured by the amplify-stack with the amplify-url to restrict requests only to our application
+    // Holds the source documents, so it is kept (with its objects) if the stack is deleted.
+    // Turning off autoDeleteObjects removes the bucket's aws-cdk:auto-delete-objects tag
+    // before the cleanup resource is deleted, and that handler only empties tagged buckets.
     this.knowledgeBaseBucket = new s3.Bucket(this, "KnowledgeBaseBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
+      removalPolicy: RemovalPolicy.RETAIN,
       enforceSSL: true,
       versioned: true,
       lifecycleRules: [
