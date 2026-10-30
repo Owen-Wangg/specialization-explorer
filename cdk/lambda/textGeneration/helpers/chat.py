@@ -5,6 +5,7 @@ import time
 from typing import Dict, Any, Optional, List, Tuple
 
 from helpers.tracing import tracer
+from helpers.aws_clients import get_bedrock_client
 
 from helpers.crud import (
     fetch_recent_messages, ensure_session_exists, insert_message, update_last_active_session,
@@ -60,7 +61,7 @@ Output ONLY the search query. Do not include explanations, preambles, or quotes.
 """
 
     try:
-        bedrock_runtime = boto3.client("bedrock-runtime", region_name=llm_region)
+        bedrock_runtime = get_bedrock_client("bedrock-runtime", llm_region)
         response = bedrock_runtime.converse(
             modelId=haiku_model_arn or config.HAIKU_ARN,
             messages=[{"role": "user", "content": [{"text": user_message}]}],
@@ -379,7 +380,7 @@ def get_response(
             "output_config": {"effort": "low"}
         }
 
-    bedrock_runtime = boto3.client("bedrock-runtime", region_name=llm_region)
+    bedrock_runtime = get_bedrock_client("bedrock-runtime", llm_region)
     
     full_response_text = ""
     yielded_text = ""
