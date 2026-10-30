@@ -2,7 +2,6 @@ import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as appsync from "aws-cdk-lib/aws-appsync";
 import { Construct } from "constructs";
 import { Duration } from "aws-cdk-lib";
 import * as wafv2 from "aws-cdk-lib/aws-wafv2";
@@ -44,12 +43,10 @@ export class ApiGatewayStack extends cdk.Stack {
   private readonly layerList: { [key: string]: lambda.ILayerVersion };
   public readonly stageARN_APIGW: string;
   public readonly apiGW_basedURL: string;
-  private eventApi: appsync.GraphqlApi;
   public readonly secret: secretsmanager.ISecret;
   public readonly allowedOriginsParamName: string;
   public getEndpointUrl = () => this.api.url;
   public getUserPoolId = () => this.userPool.userPoolId;
-  public getEventApiUrl = () => this.eventApi.graphqlUrl;
   public getUserPoolClientId = () => this.appClient.userPoolClientId;
   public getIdentityPoolId = () => this.identityPool.ref;
   public addLayer = (name: string, layer: lambda.ILayerVersion) =>
