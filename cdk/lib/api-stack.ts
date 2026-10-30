@@ -1198,12 +1198,6 @@ export class ApiGatewayStack extends cdk.Stack {
         "bedrock:Retrieve", // Add Retrieve permission for Knowledge Base
       ],
       resources: [
-        `arn:aws:bedrock:${this.region}::foundation-model/meta.llama3-70b-instruct-v1:0`,
-        `arn:aws:bedrock:us-east-1::foundation-model/cohere.embed-v4:0`,
-        // Mistral Large
-        `arn:aws:bedrock:${this.region}::foundation-model/mistral.mistral-large-2402-v1:0`,
-        // Claude Sonnet 3 (Direct Foundation Models)
-        `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
         // Claude Sonnet 5.5
         `arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-sonnet-5-5`,
         `arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5`,
