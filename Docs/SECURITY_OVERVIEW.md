@@ -301,6 +301,24 @@ The token verifiers re-read the signing key every 5 minutes and accept the previ
 | **Presigned URLs** | Short expiration for uploads |
 | **Content-Type Validation** | Enforced for uploaded files |
 
+### 6.5 Data Retention (Post-POC)
+
+> **Status:** Not implemented. Deferred until after the proof of concept.
+
+The POC has no data retention policy, so stored data grows without limit:
+
+- `chat_messages` is append-only. Triggers reject direct `UPDATE`, `DELETE`, and `TRUNCATE` (migrations `001` and `004`). Rows can only be removed by the `ON DELETE CASCADE` from `chat_sessions`.
+- Anonymous `users` rows are never purged.
+
+Keeping chat history and anonymous user records indefinitely is also a privacy concern.
+
+**Recommended approach:**
+
+1. Choose a retention period, for example deleting sessions inactive for N months.
+2. Add a scheduled job (for example, an EventBridge rule invoking a Lambda) that deletes expired rows from `chat_sessions`. The foreign key cascade removes their `chat_messages`, so the append-only triggers stay in place.
+3. Purge anonymous `users` rows that no longer have any sessions.
+4. State the retention period in the privacy notice.
+
 ---
 
 ## 7. GenAI Security
@@ -436,6 +454,7 @@ For guardrail configuration details, see [`Docs/BEDROCK_GUARDRAILS.md`](./BEDROC
 | **PII Protection** | ✅ Enabled | Automatic anonymization via Bedrock Guardrails |
 | **Input Validation** | ✅ Enabled | Schema and application-level validation |
 | **Rate Limiting** | ✅ Enabled | Multi-layer WAF and API Gateway throttling |
+| **Data Retention** | ⚠️ Post-POC | No retention policy; chat data and anonymous users kept indefinitely (see [6.5](#65-data-retention-post-poc)) |
 
 ---
 
