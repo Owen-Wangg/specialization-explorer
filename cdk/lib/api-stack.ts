@@ -145,8 +145,15 @@ export class ApiGatewayStack extends cdk.Stack {
         email: true,
       },
       selfSignUpEnabled: false,
-      mfa: cognito.Mfa.OPTIONAL,
+      // Every account in this pool is an administrator, so each sign-in needs an
+      // authenticator app code; administrators enroll on their first sign-in
+      mfa: cognito.Mfa.REQUIRED,
       mfaSecondFactor: { otp: true, sms: false },
+      // Threat protection (Plus plan) blocks sign-ins with compromised passwords and
+      // acts on risky sign-ins; the actions are set in the risk configuration below
+      // https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pool-settings-threat-protection.html
+      featurePlan: cognito.FeaturePlan.PLUS,
+      standardThreatProtectionMode: cognito.StandardThreatProtectionMode.FULL_FUNCTION,
       autoVerify: {
         email: true,
       },
@@ -245,13 +252,32 @@ export class ApiGatewayStack extends cdk.Stack {
       deletionProtection: true,
     });
 
-    // Create app client
+    // Create app client. The admin login uses SRP (the Amplify default), so the password
+    // never leaves the browser; refresh tokens stay enabled for session renewal.
     this.appClient = this.userPool.addClient(`${id}-pool`, {
       userPoolClientName: userPoolName,
       authFlows: {
-        userPassword: true,
-        custom: true,
         userSrp: true,
+      },
+      // Sign-in and password reset errors do not reveal whether an account exists
+      preventUserExistenceErrors: true,
+    });
+
+    // Actions for threat protection in full-function mode. Notifications are off because the
+    // pool sends email through Cognito's default sender, which risk notifications cannot use.
+    // https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cognito-userpoolriskconfigurationattachment.html
+    new cognito.CfnUserPoolRiskConfigurationAttachment(this, `${id}-RiskConfiguration`, {
+      userPoolId: this.userPool.userPoolId,
+      clientId: "ALL",
+      compromisedCredentialsRiskConfiguration: {
+        actions: { eventAction: "BLOCK" },
+      },
+      accountTakeoverRiskConfiguration: {
+        actions: {
+          lowAction: { eventAction: "MFA_IF_CONFIGURED", notify: false },
+          mediumAction: { eventAction: "MFA_REQUIRED", notify: false },
+          highAction: { eventAction: "BLOCK", notify: false },
+        },
       },
     });
 

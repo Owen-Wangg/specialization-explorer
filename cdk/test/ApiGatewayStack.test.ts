@@ -157,3 +157,32 @@ describe("Lambda execution roles", () => {
     expect(matching(actions, /^execute-api:/)).toEqual([]);
   });
 });
+
+describe("Cognito user pool", () => {
+  test("requires TOTP MFA, keeps deletion protection and turns on threat protection", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPool", {
+      MfaConfiguration: "ON",
+      EnabledMfas: ["SOFTWARE_TOKEN_MFA"],
+      DeletionProtection: "ACTIVE",
+      UserPoolTier: "PLUS",
+      UserPoolAddOns: { AdvancedSecurityMode: "ENFORCED" },
+    });
+  });
+
+  test("the app client allows only SRP and hides whether a user exists", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      ExplicitAuthFlows: ["ALLOW_USER_SRP_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"],
+      PreventUserExistenceErrors: "ENABLED",
+    });
+  });
+
+  test("threat protection blocks compromised credentials and high-risk sign-ins", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolRiskConfigurationAttachment", {
+      ClientId: "ALL",
+      CompromisedCredentialsRiskConfiguration: { Actions: { EventAction: "BLOCK" } },
+      AccountTakeoverRiskConfiguration: {
+        Actions: { HighAction: { EventAction: "BLOCK", Notify: false } },
+      },
+    });
+  });
+});

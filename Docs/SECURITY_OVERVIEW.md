@@ -120,7 +120,7 @@ Specialization Explorer is an AI-powered conversational application that helps u
 ║   │     AWS Cognito      │   ║   │     Custom JWT       │       ║
 ║   │                      │   ║   │                      │       ║
 ║   │  · Email / password  │   ║   │  · Anonymous access  │       ║
-║   │  · Optional TOTP MFA │   ║   │  · Short-lived token │       ║
+║   │  · Required TOTP MFA │   ║   │  · Short-lived token │       ║
 ║   │  · Email verify      │   ║   │  · Bound to user key │       ║
 ║   │  · Group membership  │   ║   │                      │       ║
 ║   └──────────┬───────────┘   ║   └──────────┬───────────┘       ║
@@ -147,6 +147,16 @@ Specialization Explorer is an AI-powered conversational application that helps u
 - Minimum 10 characters
 - Requires uppercase, lowercase, digits, and symbols
 - Account recovery via verified email only
+
+### 3.4 Administrator Sign-In
+
+| Control | Implementation |
+|---------|----------------|
+| **MFA** | Required; authenticator app (TOTP) only, enrolled at first sign-in |
+| **Auth flow** | SRP only; the password is never sent to Cognito |
+| **Threat protection** | Cognito Plus plan, full-function mode: compromised passwords and high-risk sign-ins are blocked |
+| **Account enumeration** | Sign-in and recovery errors do not reveal whether an account exists |
+| **Pool deletion** | Deletion protection on, and the pool is retained if the stack is deleted |
 
 ---
 
