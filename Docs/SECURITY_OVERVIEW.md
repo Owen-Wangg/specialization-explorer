@@ -225,7 +225,19 @@ Each new anonymous user gets a fresh daily quota. Account creation is limited to
 | **Input Sanitization** | UUID format, length limits, enum validation |
 | **Parameterized Queries** | SQL injection prevention at the database layer |
 
-### 4.5 CORS Configuration
+### 4.5 Browser Security Headers
+
+Amplify Hosting sends these headers with every page:
+
+| Header | Value |
+|--------|-------|
+| **Content-Security-Policy** | Scripts, styles and connections limited to the site, the API and the AWS services it calls; no framing |
+| **Strict-Transport-Security** | `max-age=31536000; includeSubDomains` |
+| **Referrer-Policy** | `strict-origin-when-cross-origin` |
+| **X-Content-Type-Options** | `nosniff` |
+| **Permissions-Policy** | Camera, microphone, geolocation, payment and USB turned off |
+
+### 4.6 CORS Configuration
 
 - Dynamic origin validation from configuration
 - Restricted to known application domains
