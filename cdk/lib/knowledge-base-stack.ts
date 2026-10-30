@@ -234,7 +234,7 @@ export class KnowledgeBaseStack extends Stack {
     }));
 
     const ecrImageWaiterFn = new lambda.Function(this, "KBEcrImageWaiterFn", {
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "index.handler",
       role: ecrImageWaiterRole,
       timeout: cdk.Duration.minutes(15),

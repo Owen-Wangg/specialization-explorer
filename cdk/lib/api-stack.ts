@@ -74,7 +74,7 @@ export class ApiGatewayStack extends cdk.Stack {
      */
     const jwt = new lambda.LayerVersion(this, "aws-jwt-verify", {
       code: lambda.Code.fromAsset("./layers/aws-jwt-verify.zip"),
-      compatibleRuntimes: [lambda.Runtime.NODEJS_22_X],
+      compatibleRuntimes: [lambda.Runtime.NODEJS_24_X],
       description: "Contains the aws-jwt-verify library for JS",
     });
 
@@ -84,7 +84,7 @@ export class ApiGatewayStack extends cdk.Stack {
      */
     const postgres = new lambda.LayerVersion(this, "postgres", {
       code: lambda.Code.fromAsset("./layers/postgres.zip"),
-      compatibleRuntimes: [lambda.Runtime.NODEJS_22_X],
+      compatibleRuntimes: [lambda.Runtime.NODEJS_24_X],
       description: "Contains the postgres library for JS",
     });
 
@@ -798,7 +798,7 @@ export class ApiGatewayStack extends cdk.Stack {
     // Rotate the token signing key on the same cadence as the database credentials.
     // Verifiers accept the previous key only briefly after a rotation (see the authorizers).
     const jwtSecretRotationFunction = new lambda.Function(this, `${id}-JwtSecretRotationFunction`, {
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "index.handler",
       code: lambda.Code.fromAsset("lambda/jwtSecretRotation"),
       timeout: Duration.seconds(30),
@@ -832,7 +832,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-admin-authorization-api-gateway`,
       {
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         code: lambda.Code.fromAsset("lambda/adminAuthorizerFunction"),
         handler: "adminAuthorizerFunction.handler",
         timeout: Duration.seconds(30),
@@ -871,7 +871,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-user-authorization-api-gateway`,
       {
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         code: lambda.Code.fromAsset("lambda/authorization"),
         handler: "userAuthorizerFunction.handler",
         timeout: Duration.seconds(30),
@@ -909,7 +909,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-PublicTokenFunction`,
       {
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "publicTokenFunction.handler",
         layers: [jwt, postgres],
         reservedConcurrentExecutions: 50,
@@ -952,7 +952,7 @@ export class ApiGatewayStack extends cdk.Stack {
     apiGW_publicTokenFunction.overrideLogicalId("PublicTokenFunction");
 
     const preSignupLambda = new lambda.Function(this, `preSignupLambda`, {
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       code: lambda.Code.fromAsset("lambda/authorization"),
       handler: "preSignUp.handler",
       timeout: Duration.seconds(30),
@@ -1005,7 +1005,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-addAdminOnSignUp`,
       {
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         code: lambda.Code.fromAsset("lambda/authorization"),
         handler: "addAdminOnSignUp.handler",
         timeout: Duration.seconds(30),
@@ -1340,7 +1340,7 @@ export class ApiGatewayStack extends cdk.Stack {
     );
 
     const lambdaUserFunction = new lambda.Function(this, `${id}-userFunction`, {
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       code: lambda.Code.fromAsset("lambda"),
       handler: "handlers/userHandler.handler",
       timeout: Duration.seconds(30),
@@ -1383,7 +1383,7 @@ export class ApiGatewayStack extends cdk.Stack {
     });
 
     const lambdaSystemMessagesFunction = new lambda.Function(this, `${id}-systemMessagesFunction`, {
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       code: lambda.Code.fromAsset("lambda"),
       handler: "handlers/systemMessagesHandler.handler",
       timeout: Duration.seconds(30),
@@ -1429,7 +1429,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-chatSessionFunction`,
       {
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         code: lambda.Code.fromAsset("lambda"),
         handler: "handlers/chatSessionHandler.handler",
         timeout: Duration.seconds(30),
@@ -1469,7 +1469,7 @@ export class ApiGatewayStack extends cdk.Stack {
       this,
       `${id}-adminFunction`,
       {
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         code: lambda.Code.fromAsset("lambda"),
         handler: "handlers/adminHandler.handler",
         timeout: Duration.seconds(30),
@@ -1517,7 +1517,7 @@ export class ApiGatewayStack extends cdk.Stack {
     // Connect Lambda
     const connectFunction = new lambda.Function(this, `${id}-ConnectFunction`, {
       functionName: `${id}-ConnectFunction`,
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "connect.handler",
       code: lambda.Code.fromAsset("lambda/websocket"),
       timeout: cdk.Duration.seconds(30),
@@ -1529,7 +1529,7 @@ export class ApiGatewayStack extends cdk.Stack {
     // $connect authorizer: verifies the user-bound token and passes the user id to every route
     const wsAuthorizerFunction = new lambda.Function(this, `${id}-WebSocketAuthorizerFunction`, {
       functionName: `${id}-WebSocketAuthorizerFunction`,
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "authorizer.handler",
       code: lambda.Code.fromAsset("lambda/websocket"),
       timeout: cdk.Duration.seconds(30),
@@ -1566,7 +1566,7 @@ export class ApiGatewayStack extends cdk.Stack {
       `${id}-DisconnectFunction`,
       {
         functionName: `${id}-DisconnectFunction`,
-        runtime: lambda.Runtime.NODEJS_22_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "disconnect.handler",
         code: lambda.Code.fromAsset("lambda/websocket"),
         timeout: cdk.Duration.seconds(30),
@@ -1577,7 +1577,7 @@ export class ApiGatewayStack extends cdk.Stack {
 
     // Default route Lambda for handling messages
     const defaultFunction = new lambda.Function(this, `${id}-DefaultFunction`, {
-      runtime: lambda.Runtime.NODEJS_22_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "default.handler",
       code: lambda.Code.fromAsset("lambda/websocket"),
       timeout: cdk.Duration.seconds(30),
