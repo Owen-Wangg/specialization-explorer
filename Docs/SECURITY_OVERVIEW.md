@@ -158,6 +158,28 @@ Specialization Explorer is an AI-powered conversational application that helps u
 | **Account enumeration** | Sign-in and recovery errors do not reveal whether an account exists |
 | **Pool deletion** | Deletion protection on, and the pool is retained if the stack is deleted |
 
+### 3.5 Anonymous User Key (Accepted Risk)
+
+Students do not sign in. On first visit the browser receives a user id and a random user key, and stores both in `localStorage`. The key is sent to the token endpoint (`Authorization: UserKey <userId>:<userKey>`) to get a 15-minute token bound to that user. The database stores only the SHA-256 hash of the key.
+
+**Risk:** script running on the site's origin can read `localStorage`. Anyone who obtains a user's id and key can read that user's chat history and send messages within that user's quota.
+
+**Mitigations:**
+
+| Control | Effect |
+|---------|--------|
+| **Content Security Policy** | `script-src 'self'`, `object-src 'none'`, `base-uri 'self'` and `frame-ancestors 'none'` block injected and framed scripts. Chat messages are rendered as Markdown through `rehype-sanitize`, with no raw HTML |
+| **Key rotation** | When the app loads and the key is more than 24 hours old, the browser replaces it; the previous key stops working at once |
+| **Short-lived tokens** | Tokens expire after 15 minutes and are kept in memory only |
+| **Revocation** | Clearing `users.user_key_hash` for a user stops new tokens being issued for that user (see [6.3](#63-credential-management)) |
+| **Scope** | A key gives access only to its own user's anonymous chats; it carries no admin rights |
+
+A key whose owner never returns is not rotated, and stays valid until it is revoked.
+
+**Why an `HttpOnly` cookie is not used:** the site is served from `amplifyapp.com` and the API from `execute-api.amazonaws.com`, so a cookie set by the token endpoint would be a third-party cookie (`SameSite=None`). Safari blocks these by default and other browsers are restricting them, so returning students would silently lose their chat history. The WebSocket connection also authenticates with a token in the query string, not a cookie. Moving the key to a cookie becomes practical if the site and API are served from one custom domain (for example `app.example.edu` and `api.example.edu`), so the cookie is first-party.
+
+This risk is accepted for the current deployment and should be reviewed if a custom domain is added.
+
 ---
 
 ## 4. API Security
