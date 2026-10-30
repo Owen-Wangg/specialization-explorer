@@ -739,6 +739,19 @@ If Bedrock returns `COMPLETE` or `FAILED`, the function:
 5. Deletes the polling schedule
 6. Attempts to continue the workflow
 
+A `COMPLETE` job can still contain documents that failed to ingest (`statistics.numberOfDocumentsFailed`). When a failure reason names a run's S3 object (`s3://bucket/key`), that run is marked `failed` with the reason. Reasons that name no staged file stay on the other runs, and the admin dashboard shows those runs as **Completed with errors**. The CSV and Markdown detail row lists the reasons.
+
+Every terminal poll publishes `FailedDocuments` and `FailedIngestionJobs` to the `<StackPrefix>-Api/KnowledgeBase` CloudWatch namespace through Embedded Metric Format. The `KnowledgeBaseFailedDocumentsAlarm` and `KnowledgeBaseFailedIngestionJobsAlarm` alarms fire when either is at least 1 in a 5-minute period.
+
+### Large files
+
+The S3 data source uses semantic chunking, which rejects a document over 1,000,000 characters. The chunking strategy cannot be changed on an existing data source. At staging time:
+
+* A CSV over 900,000 characters is split into `<name>.partNNN.csv` files. Each part has the header row and its own copy of the metadata file. Only the parts are copied under `uploads/`, and their keys are stored in `data_sources.metadata.s3_part_keys`. `s3_key` keeps the original key so duplicate checks still work.
+* A CSV with a single row over the limit, or a Markdown file over the limit, is rejected with `400`.
+
+Files staged before this check were not split. Re-upload any of them that fail with the size limit.
+
 ### Continuing after S3 completion
 
 When an S3 job completes, `update_status` calls:
@@ -855,6 +868,7 @@ The Lambda logs:
 * Schedule deletion failures
 * Workflow continuation failures
 * Website capacity retry behavior
+* Ingestion jobs that failed or finished with failed documents (also published as CloudWatch metrics)
 
 ### Important metadata fields
 

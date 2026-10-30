@@ -1260,6 +1260,39 @@ export class ApiGatewayStack extends cdk.Stack {
       },
     });
 
+    // Ingestion polling publishes failed document and job counts to this namespace (Embedded
+    // Metric Format). A Bedrock job can finish COMPLETE with failed documents, so both are alarmed.
+    const knowledgeBaseMetricsNamespace = `${id}/KnowledgeBase`;
+    lambdaKnowledgeBase.addEnvironment('METRICS_NAMESPACE', knowledgeBaseMetricsNamespace);
+
+    new cloudwatch.Alarm(this, 'KnowledgeBaseFailedDocumentsAlarm', {
+      metric: new cloudwatch.Metric({
+        namespace: knowledgeBaseMetricsNamespace,
+        metricName: 'FailedDocuments',
+        period: Duration.minutes(5),
+        statistic: cloudwatch.Stats.SUM,
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'Knowledge base ingestion finished with documents that failed to ingest',
+    });
+
+    new cloudwatch.Alarm(this, 'KnowledgeBaseFailedIngestionJobsAlarm', {
+      metric: new cloudwatch.Metric({
+        namespace: knowledgeBaseMetricsNamespace,
+        metricName: 'FailedIngestionJobs',
+        period: Duration.minutes(5),
+        statistic: cloudwatch.Stats.SUM,
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: 'A knowledge base ingestion job failed',
+    });
+
     lambdaKnowledgeBase.addEnvironment('ALLOWED_ORIGIN_PARAM', this.allowedOriginsParamName);
     lambdaKnowledgeBase.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,

@@ -1,5 +1,7 @@
 import os
+import re
 import json
+import time
 from helpers.cors import get_cors_headers
 import logging
 import boto3
@@ -12,6 +14,9 @@ logger.setLevel(logging.INFO)
 
 # Environment variables
 REGION = os.environ["REGION"]
+METRICS_NAMESPACE = os.environ.get("METRICS_NAMESPACE", "SpecEx/KnowledgeBase")
+
+S3_URI_PATTERN = re.compile(r"s3://[^\s,;\]\)\"']+")
 
 # AWS Clients
 bedrock_agent = boto3.client("bedrock-agent", region_name=REGION)
@@ -102,6 +107,74 @@ def _update_ingestion_runs(connection, *, ingestion_run_ids: list[str], status: 
             )
 
         return cursor.rowcount
+
+def _emit_ingestion_metrics(*, phase: str, failed_documents: int, job_failed: bool):
+    """
+    Publishes FailedDocuments and FailedIngestionJobs through CloudWatch Embedded Metric Format.
+    A Bedrock ingestion job can finish as COMPLETE while some documents failed, so documents
+    are counted separately from failed jobs. Alarms in the API stack watch both metrics.
+    https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
+    """
+    print(json.dumps({
+        "_aws": {
+            "Timestamp": int(time.time() * 1000),
+            "CloudWatchMetrics": [{
+                "Namespace": METRICS_NAMESPACE,
+                "Dimensions": [[]],
+                "Metrics": [
+                    {"Name": "FailedDocuments", "Unit": "Count"},
+                    {"Name": "FailedIngestionJobs", "Unit": "Count"},
+                ],
+            }],
+        },
+        "FailedDocuments": failed_documents,
+        "FailedIngestionJobs": 1 if job_failed else 0,
+        "phase": phase,
+    }))
+
+
+def _s3_uris_by_run(connection, *, ingestion_run_ids: list[str]) -> dict[str, set[str]]:
+    """The S3 objects each ingestion run's data source was ingested from (split CSVs have parts)"""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT ir.id, ds.metadata
+            FROM ingestion_runs ir
+            JOIN data_sources ds ON ds.id = ir.data_source_id
+            WHERE ir.id = ANY(%s::uuid[])
+            """,
+            (ingestion_run_ids,),
+        )
+        rows = cursor.fetchall()
+
+    uris = {}
+    for run_id, metadata in rows:
+        metadata = metadata or {}
+        bucket = metadata.get("s3_bucket")
+        keys = metadata.get("s3_part_keys") or [metadata.get("s3_key")]
+        uris[str(run_id)] = {f"s3://{bucket}/{key}" for key in keys if bucket and key}
+    return uris
+
+
+def _attribute_document_failures(
+    connection, *, ingestion_run_ids: list[str], failure_reasons: list[str]
+) -> tuple[dict[str, list[str]], list[str]]:
+    """
+    Matches document-level failure reasons to ingestion runs by the S3 URIs they name.
+    Returns the reasons for each failed run, and the reasons that name no run's file.
+    """
+    uris_by_run = _s3_uris_by_run(connection, ingestion_run_ids=ingestion_run_ids)
+    failed = {}
+    unmatched = []
+    for reason in failure_reasons:
+        named = {uri.rstrip(".") for uri in S3_URI_PATTERN.findall(reason)}
+        matched_runs = [run_id for run_id, uris in uris_by_run.items() if uris & named]
+        if not matched_runs:
+            unmatched.append(reason)
+        for run_id in matched_runs:
+            failed.setdefault(run_id, []).append(reason)
+    return failed, unmatched
+
 
 def _get_run_rows(connection, *, ingestion_run_ids: list[str]) -> list[dict]:
     """
@@ -350,6 +423,7 @@ def update_status(event, connection):
     ingestion_job = resp.get("ingestionJob", {})
     bedrock_status = ingestion_job.get("status")
     failure_reasons = ingestion_job.get("failureReasons", []) or []
+    failed_document_count = (ingestion_job.get("statistics") or {}).get("numberOfDocumentsFailed", 0) or 0
 
     logger.info(
         "Polled ingestion job: kb_id=%s phase=%s sync_session_id=%s data_source_id=%s ingestion_job_id=%s status=%s",
@@ -390,16 +464,53 @@ def update_status(event, connection):
 
     error_message = "; ".join(failure_reasons) if failure_reasons else None
 
+    if normalized_status == "failed" or failed_document_count:
+        logger.warning(
+            "Ingestion job %s finished as %s with %d failed documents: %s",
+            bedrock_ingestion_job_id,
+            bedrock_status,
+            failed_document_count,
+            error_message,
+        )
+    _emit_ingestion_metrics(
+        phase=phase,
+        failed_documents=failed_document_count,
+        job_failed=normalized_status == "failed",
+    )
+
     retry_created_run_ids = []
     next_step = None
 
     try:
-        rows_updated = _update_ingestion_runs(
-            connection,
-            ingestion_run_ids=db_ingestion_run_ids,
-            status=normalized_status,
-            error_message=error_message,
-        )
+        # A COMPLETE job can still have failed documents. Runs whose files the failure
+        # reasons name are marked failed, so the admin dashboard does not show them as completed.
+        failed_run_reasons = {}
+        if normalized_status == "completed" and (failed_document_count or failure_reasons):
+            failed_run_reasons, unmatched_reasons = _attribute_document_failures(
+                connection,
+                ingestion_run_ids=db_ingestion_run_ids,
+                failure_reasons=failure_reasons,
+            )
+            if failed_run_reasons:
+                error_message = "; ".join(unmatched_reasons) if unmatched_reasons else None
+
+        rows_updated = 0
+        for run_id, reasons in failed_run_reasons.items():
+            rows_updated += _update_ingestion_runs(
+                connection,
+                ingestion_run_ids=[run_id],
+                status="failed",
+                error_message="; ".join(reasons),
+            )
+
+        remaining_run_ids = [x for x in db_ingestion_run_ids if x not in failed_run_reasons]
+        if remaining_run_ids:
+            rows_updated += _update_ingestion_runs(
+                connection,
+                ingestion_run_ids=remaining_run_ids,
+                status=normalized_status,
+                error_message=error_message,
+            )
 
         # Retry logic:
         # if a single-website batch failed due to capacity, delete it from the full data source,
