@@ -127,7 +127,8 @@ export class DatabaseStack extends Stack {
       performanceInsightRetention: rds.PerformanceInsightRetention.DEFAULT,
       autoMinorVersionUpgrade: true,
       backupRetention: Duration.days(7),
-      deleteAutomatedBackups: true,
+      // Keep the automated backups if the instance is deleted, so it can still be restored
+      deleteAutomatedBackups: false,
       deletionProtection: true,
       databaseName: "specEx",
       publiclyAccessible: false,
