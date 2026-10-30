@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { confirmSignIn, type SignInOutput } from "aws-amplify/auth";
 import { Eye, EyeOff } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { AuthService } from "@/functions/authService";
 import Footer from "@/components/Footer";
 
@@ -353,25 +354,31 @@ export default function AdminLogin() {
                     Open an authenticator app (for example Microsoft Authenticator,
                     Google Authenticator or 1Password) and add an account.
                   </li>
-                  <li>
-                    Choose to enter a setup key, and enter the key below. On a phone
-                    you can instead{" "}
-                    <a href={totpSetupUri} className="text-blue-600 underline">
-                      open this link in your authenticator app
-                    </a>
-                    .
-                  </li>
+                  <li>Scan the QR code below with the app.</li>
                   <li>Enter the 6-digit code the app shows.</li>
                 </ol>
-                <div className="space-y-2">
-                  <Label htmlFor="totpSecret">Setup Key</Label>
+                <div className="flex justify-center">
+                  {/* Rendered locally so the secret never leaves the browser */}
+                  <QRCodeSVG
+                    value={totpSetupUri}
+                    size={192}
+                    marginSize={2}
+                    title="Authenticator app setup QR code"
+                    className="rounded border border-gray-200"
+                  />
+                </div>
+                <details className="text-sm text-gray-700">
+                  <summary className="cursor-pointer text-blue-600">
+                    Can't scan the code? Enter a setup key instead
+                  </summary>
                   <code
                     id="totpSecret"
-                    className="block break-all rounded bg-gray-100 p-3 font-mono text-sm select-all"
+                    aria-label="Setup Key"
+                    className="mt-2 block break-all rounded bg-gray-100 p-3 font-mono text-sm select-all"
                   >
                     {formatSecret(totpSecret)}
                   </code>
-                </div>
+                </details>
                 {totpCodeField}
                 {errorBox}
                 <Button type="submit" className="w-full" disabled={isLoading}>
