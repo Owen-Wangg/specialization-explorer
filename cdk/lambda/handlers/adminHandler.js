@@ -94,18 +94,11 @@ exports.handler = async (event) => {
   try {
     // Route requests based on HTTP method and URL path
     // event.httpMethod: GET, POST, PUT, DELETE
-    // event.resource: URL pattern like /admin/users or /admin/exampleEndpoint
+    // event.resource: URL pattern like /admin/users
     const pathData = event.httpMethod + " " + event.resource;
 
     // Handle different API endpoints using switch statement
     switch (pathData) {
-      // GET /admin/exampleEndpoint - Test endpoint for development and debugging
-      case "GET /admin/exampleEndpoint":
-        // Simple test response to verify Lambda function is working
-        data = "Example endpoint invoked";
-        response.body = JSON.stringify(data);
-        break;
-
       // POST /admin/promote_user - Record the caller as an administrator in the users table.
       // The caller is already in the Cognito admin group (enforced by the authorizer); the only
       // row this can change is the one for the caller's own verified Cognito address, so no
