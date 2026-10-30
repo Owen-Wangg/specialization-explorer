@@ -211,29 +211,34 @@ def _attribute_document_failures(
     - per run: its reasons, and whether the run itself failed. A file run fails when its
       file is named. A website run fails only when its seed page is named; a failed page
       under the seed leaves the run completed with errors.
-    - the reasons that name no run
-    - how many distinct documents the matched reasons named
+    - the reasons that name no run in this batch. A website job re-crawls every seed on
+      the crawler, so these include failures of seeds from earlier batches.
+    - how many distinct documents the reasons named, matched to this batch or not
     """
     sources = _run_sources(connection, ingestion_run_ids=ingestion_run_ids)
     seeds = {run_id: s["website"] for run_id, s in sources.items() if s["website"]}
 
     attributed = {}
     unmatched = []
-    matched_documents = set()
+    named_documents = set()
     for reason in _split_failure_reasons(failure_reasons):
         matched_runs = {}
 
         named_uris = {uri.rstrip(".") for uri in S3_URI_PATTERN.findall(reason)}
+        named_documents.update(named_uris)
         for run_id, source in sources.items():
             if source["s3_uris"] & named_uris:
                 matched_runs[run_id] = True
-                matched_documents.update(source["s3_uris"] & named_uris)
 
-        for url in {_normalize_url(u) for u in WEB_URL_PATTERN.findall(reason)}:
+        # The first web URL is the document ("Skipped document: <url>. ..."); later URLs
+        # are links to AWS documentation inside the message
+        web_urls = WEB_URL_PATTERN.findall(reason) if not named_uris else []
+        if web_urls:
+            url = _normalize_url(web_urls[0])
+            named_documents.add(url)
             run_id = _website_run_for_url(url, seeds)
             if run_id:
-                matched_runs[run_id] = matched_runs.get(run_id, False) or url == seeds[run_id]
-                matched_documents.add(url)
+                matched_runs[run_id] = url == seeds[run_id]
 
         if not matched_runs:
             unmatched.append(reason)
@@ -241,7 +246,7 @@ def _attribute_document_failures(
             entry = attributed.setdefault(run_id, {"reasons": [], "failed": False})
             entry["reasons"].append(reason)
             entry["failed"] = entry["failed"] or run_failed
-    return attributed, unmatched, len(matched_documents)
+    return attributed, unmatched, len(named_documents)
 
 
 def _get_run_rows(connection, *, ingestion_run_ids: list[str]) -> list[dict]:
@@ -554,24 +559,25 @@ def update_status(event, connection):
         # file or website it names, so one bad page does not mark the whole batch with errors.
         attributed_runs = {}
         if normalized_status == "completed" and (failed_document_count or failure_reasons):
-            attributed_runs, unmatched_reasons, matched_document_count = _attribute_document_failures(
+            attributed_runs, unmatched_reasons, named_document_count = _attribute_document_failures(
                 connection,
                 ingestion_run_ids=db_ingestion_run_ids,
                 failure_reasons=failure_reasons,
             )
-            if matched_document_count >= failed_document_count:
-                # Every failed document is accounted for, so what is left are job-level notices
-                # (Bedrock adds a generic "internal error" even to clean crawls). Log, do not attach.
+            if named_document_count >= failed_document_count:
+                # Every failed document is named, so what is left belongs to other sources on the
+                # same crawler or is a job-level notice (Bedrock adds a generic "internal error"
+                # even to clean crawls). Log it rather than attach it to this batch's runs.
                 if unmatched_reasons:
                     logger.info(
-                        "Ingestion job %s job-level notices not attached to runs: %s",
+                        "Ingestion job %s reasons not attached to this batch's runs: %s",
                         bedrock_ingestion_job_id,
                         "; ".join(unmatched_reasons),
                     )
                 error_message = None
             else:
-                # Some failed documents could not be matched to a run, so every other run keeps
-                # the unmatched reasons rather than hiding a failure.
+                # Some failed documents are not named at all, so every other run keeps the
+                # unmatched reasons rather than hiding a failure.
                 error_message = "; ".join(unmatched_reasons) if unmatched_reasons else None
 
         rows_updated = 0

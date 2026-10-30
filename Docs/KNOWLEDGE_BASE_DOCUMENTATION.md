@@ -745,7 +745,7 @@ A `COMPLETE` job can still contain documents that failed to ingest (`statistics.
 * A message naming a website's seed URL marks that website run `failed`, since nothing was ingested from it (for example, the seed redirected outside the crawl scope).
 * A message naming a page under a website's seed path (the crawler's default scope) leaves that run `completed` with the reason, shown as **Completed with errors**.
 
-Runs that no message names stay `completed` with no error. When every failed document is matched, the leftover messages are job-level notices (Bedrock adds a generic "internal error" even to clean crawls) and are only logged. When some failed documents cannot be matched, the leftover messages stay on every unmatched run so the failure is not hidden.
+Runs that no message names stay `completed` with no error. Every website job re-crawls all seeds on the crawler, so its messages can name seeds from earlier batches; those are not attached to the current batch. When the messages name at least as many documents as `numberOfDocumentsFailed`, the leftover messages (earlier batches' seeds, or the generic "internal error" Bedrock adds even to clean crawls) are only logged. When some failed documents are not named at all, the leftover messages stay on every unmatched run so the failure is not hidden.
 
 Every terminal poll publishes `FailedDocuments` and `FailedIngestionJobs` to the `<StackPrefix>-Api/KnowledgeBase` CloudWatch namespace through Embedded Metric Format. The `KnowledgeBaseFailedDocumentsAlarm` and `KnowledgeBaseFailedIngestionJobsAlarm` alarms fire when either is at least 1 in a 5-minute period.
 
