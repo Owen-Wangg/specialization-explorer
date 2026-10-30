@@ -328,9 +328,13 @@ export class ApiGatewayStack extends cdk.Stack {
         stageName: "prod",
         tracingEnabled: true,
         description: "Deployment with flashcard support - Nov 18 2025",
-        loggingLevel: apigateway.MethodLoggingLevel.INFO,
+        // Stage-wide defaults. Setting throttling here, instead of under a "/*/*" method option,
+        // keeps them in one method setting; a second "/*/*" entry overrides logging and metrics.
+        loggingLevel: apigateway.MethodLoggingLevel.ERROR,
         dataTraceEnabled: false,
         metricsEnabled: true,
+        throttlingRateLimit: 100,
+        throttlingBurstLimit: 200,
 
         // Origin returned by preflight and gateway error responses; kept in sync with the
         // allow-list by the Amplify stack once the app URL is known
@@ -355,16 +359,13 @@ export class ApiGatewayStack extends cdk.Stack {
         }),
         
         methodOptions: {
-          // Default for all endpoints
-          "/*/*": {
-            throttlingRateLimit: 100,
-            throttlingBurstLimit: 200,
-          },
-
-          // FREQUENT: Public token endpoint
+          // FREQUENT: Public token endpoint. A method override does not inherit the stage
+          // defaults, so logging and metrics are repeated here.
           "/user/publicToken/GET": {
             throttlingRateLimit: 50,
             throttlingBurstLimit: 100,
+            loggingLevel: apigateway.MethodLoggingLevel.ERROR,
+            metricsEnabled: true,
           },
         },
       },
