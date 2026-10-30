@@ -223,12 +223,6 @@ export class VpcStack extends Stack {
 
       this.setFlowLogRetention(this.vpc.addFlowLog(`${id}-vpcFlowLog`), props.environmentName);
 
-      // Add DynamoDB gateway endpoint
-      this.vpc.addGatewayEndpoint(`${id}-DynamoDB Endpoint`, {
-        service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-        subnets: [{ subnetType: ec2.SubnetType.PRIVATE_ISOLATED }],
-      });
-
       // Add S3 gateway endpoint
       this.vpc.addGatewayEndpoint(`${id}-S3 Endpoint`, {
         service: ec2.GatewayVpcEndpointAwsService.S3,
@@ -279,15 +273,6 @@ export class VpcStack extends Stack {
       // No RDS interface endpoint: it only serves the RDS management API, which nothing calls
       // at runtime. Database traffic goes to RDS Proxy inside the VPC and does not use it.
       // Any management call (for example from the hosted rotation functions) leaves through NAT.
-
-      // Add DynamoDB gateway endpoint
-      this.vpc.addGatewayEndpoint(`${id}-DynamoDB Endpoint`, {
-        service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-        subnets: [
-          { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-          { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-        ],
-      });
 
       // Add S3 gateway endpoint
       this.vpc.addGatewayEndpoint(`${id}-S3 Endpoint`, {
