@@ -217,11 +217,8 @@ export class VpcStack extends Stack {
         privateDnsEnabled: true,
       });
 
-      this.vpc.addInterfaceEndpoint("RDS Endpoint", {
-        service: ec2.InterfaceVpcEndpointAwsService.RDS,
-        subnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-        privateDnsEnabled: true,
-      });
+      // No RDS interface endpoint: it only serves the RDS management API, which nothing calls
+      // at runtime. Database traffic goes to RDS Proxy inside the VPC and does not use it.
 
       this.vpc.addFlowLog(`${id}-vpcFlowLog`);
 
@@ -278,11 +275,9 @@ export class VpcStack extends Stack {
         subnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       });
 
-      // Add RDS endpoint to VPC
-      this.vpc.addInterfaceEndpoint(`${id}-RDS Endpoint`, {
-        service: ec2.InterfaceVpcEndpointAwsService.RDS,
-        subnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      });
+      // No RDS interface endpoint: it only serves the RDS management API, which nothing calls
+      // at runtime. Database traffic goes to RDS Proxy inside the VPC and does not use it.
+      // Any management call (for example from the hosted rotation functions) leaves through NAT.
 
       // Add DynamoDB gateway endpoint
       this.vpc.addGatewayEndpoint(`${id}-DynamoDB Endpoint`, {
