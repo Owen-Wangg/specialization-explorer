@@ -8,6 +8,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as codeconnections from "aws-cdk-lib/aws-codeconnections";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as logs from "aws-cdk-lib/aws-logs";
 
 interface LambdaConfig {
   name: string; // Module name (e.g., "textGeneration")
@@ -301,6 +302,12 @@ export class CICDStack extends cdk.Stack {
       );
 
       this.buildProjects[lambda.name] = buildProject;
+
+      // CodeBuild creates this log group on its first build, outside CloudFormation
+      new logs.LogRetention(this, `${lambda.name}BuildLogRetention`, {
+        logGroupName: `/aws/codebuild/${buildProject.projectName}`,
+        retention: logs.RetentionDays.ONE_MONTH,
+      });
 
 
       // Add build action to the list

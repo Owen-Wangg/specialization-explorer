@@ -255,6 +255,19 @@ export class DatabaseStack extends Stack {
       }),
     });
 
+    // The rotation functions and the proxy write to log groups their services create outside
+    // CloudFormation, so the retention is applied to the existing groups
+    [
+      `/aws/lambda/${id}-AppUserRotation`,
+      `/aws/lambda/${id}-TableCreatorRotation`,
+      `/aws/rds/proxy/${rdsProxy.dbProxyName}`,
+    ].forEach((logGroupName, index) => {
+      new logs.LogRetention(this, `${id}-ServiceLogRetention${index}`, {
+        logGroupName,
+        retention: logs.RetentionDays.ONE_MONTH,
+      });
+    });
+
     // Note: AWS HostedRotation automatically creates and configures:
     // - Rotation Lambda functions in the VPC
     // - Required IAM permissions for Secrets Manager and RDS

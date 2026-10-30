@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
+import * as logs from "aws-cdk-lib/aws-logs";
+import { applyLambdaLogRetention } from "../lib/log-retention";
 import { VpcStack } from "../lib/vpc-stack";
 import { DatabaseStack } from "../lib/database-stack";
 import { ApiGatewayStack } from "../lib/api-stack";
@@ -24,6 +26,7 @@ const githubBranch = app.node.tryGetContext("githubBranch") || "main";
 const vpcStack = new VpcStack(app, `${StackPrefix}-VpcStack`, {
   env,
   stackPrefix: StackPrefix,
+  environmentName: environment,
 });
 
 const dbStack = new DatabaseStack(app, `${StackPrefix}-Database`, vpcStack, {
@@ -112,3 +115,6 @@ stacks.forEach((stack) => {
     cdk.Tags.of(stack).add(key, value);
   });
 });
+
+// Every Lambda log group keeps one month of logs
+applyLambdaLogRetention(stacks, logs.RetentionDays.ONE_MONTH);

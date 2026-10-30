@@ -1746,30 +1746,7 @@ export class ApiGatewayStack extends cdk.Stack {
       `${this.webSocketApi.apiEndpoint}/${this.wsStage.stageName}`
     );
 
-    // Explicit retention for function logs, which otherwise never expire
-    [
-      adminAuthorizationFunction,
-      userAuthFunction,
-      publicTokenLambda,
-      preSignupLambda,
-      AutoSignupLambda,
-      lambdaTextGen,
-      lambdaKnowledgeBase,
-      lambdaUserFunction,
-      lambdaSystemMessagesFunction,
-      lambdaChatSessionFunction,
-      lambdaAdminFunction,
-      jwtSecretRotationFunction,
-      connectFunction,
-      wsAuthorizerFunction,
-      disconnectFunction,
-      defaultFunction,
-    ].forEach((fn, index) => {
-      new logs.LogRetention(this, `${id}-LambdaLogRetention${index}`, {
-        logGroupName: `/aws/lambda/${fn.functionName}`,
-        retention: logs.RetentionDays.ONE_MONTH,
-      });
-    });
+    // Function log retention is applied to every stack in bin/cdk.ts (lib/log-retention.ts)
 
     // Add WebSocket URL as stack output
     new cdk.CfnOutput(this, "WebSocketUrl", {
