@@ -1026,8 +1026,12 @@ exports.handler = async (event) => {
           const limit = parseInt(qs.limit ?? "50", 10);
           const offset = parseInt(qs.offset ?? "0", 10);
 
+          // chat_number counts the user's sessions by creation (oldest = 1), matching the
+          // "Chat N" fallback label in the student sidebar. The window runs before
+          // LIMIT/OFFSET, so numbers stay correct across pages and activity re-sorting.
           const rows = await sqlConnection`
-            SELECT id, user_id, title, created_at, last_active_at
+            SELECT id, user_id, title, created_at, last_active_at,
+                   ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC)::int AS chat_number
             FROM chat_sessions
             WHERE user_id = ${userId}
             ORDER BY COALESCE(last_active_at, created_at) DESC
