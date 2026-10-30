@@ -131,6 +131,8 @@ export class DatabaseStack extends Stack {
       deletionProtection: true,
       databaseName: "specEx",
       publiclyAccessible: false,
+      // Send the engine and upgrade logs to CloudWatch; the retention below applies to these groups
+      cloudwatchLogsExports: ["postgresql", "upgrade"],
       cloudwatchLogsRetention: logs.RetentionDays.THREE_MONTHS,
       storageEncrypted: true, // storage encryption at rest
       monitoringInterval: Duration.seconds(60), // enhanced monitoring interval
