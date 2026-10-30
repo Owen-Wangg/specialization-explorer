@@ -1,7 +1,10 @@
 import boto3
 import logging
 import re
+import time
 from typing import Dict, Any, Optional, List, Tuple
+
+from helpers.tracing import tracer
 
 from helpers.crud import (
     fetch_recent_messages, ensure_session_exists, insert_message, update_last_active_session
@@ -123,20 +126,22 @@ def _prepare_conversation(
     )
 
     # 5. Rewrite query for better retrieval
-    search_query = _rewrite_query_for_retrieval(
-        raw_query=query,
-        chat_history=raw_history,
-        llm_region=llm_region
-    )
+    with tracer.provider.in_subsegment("## query_rewrite"):
+        search_query = _rewrite_query_for_retrieval(
+            raw_query=query,
+            chat_history=raw_history,
+            llm_region=llm_region
+        )
 
     # 6. RAG Retrieval (using rewritten query)
-    sources = retrieve_documents(
-        search_query,
-        knowledge_base_id,
-        region,
-        num_retrieval_results,
-        search_type=search_type
-    )
+    with tracer.provider.in_subsegment("## kb_retrieve"):
+        sources = retrieve_documents(
+            search_query,
+            knowledge_base_id,
+            region,
+            num_retrieval_results,
+            search_type=search_type
+        )
     
     # 7. Build Context
     context_block = format_context_for_prompt(sources)
@@ -230,6 +235,7 @@ def get_response(
     
     usage_info = {}
     is_under_limit = True
+    request_started_at = time.monotonic()
 
     # The flag is client-supplied, so it only counts for the fixed intro prompt
     is_intro_message = is_intro_message and query == INTRO_PROMPT
@@ -253,7 +259,9 @@ def get_response(
 
         if not is_intro_message:
             try:
-                guardrail_result = invoke_guardrail(query, config.REGION)
+                # Runs before the query rewrite so later model calls only see redacted text
+                with tracer.provider.in_subsegment("## guardrail"):
+                    guardrail_result = invoke_guardrail(query, config.REGION)
             except Exception as e:
                 logger.error(f"Guardrail invocation failed: {e}")
                 return {
@@ -353,6 +361,9 @@ def get_response(
     answer_text = ""
     cited_indices = []
 
+    first_token_recorded = False
+    stream_subsegment = tracer.provider.begin_subsegment("## model_stream")
+
     try:
         response = bedrock_runtime.converse_stream(**request_payload)
         for event in response.get("stream", []):
@@ -396,6 +407,13 @@ def get_response(
                     if len(safe_text) > len(yielded_text):
                         new_text = safe_text[len(yielded_text):]
                         yielded_text += new_text
+                        if new_text and not first_token_recorded:
+                            first_token_recorded = True
+                            # Time from the start of the request until the user sees answer text
+                            tracer.put_annotation(
+                                key="time_to_first_token_ms",
+                                value=int((time.monotonic() - request_started_at) * 1000),
+                            )
                         if stream_callback and new_text:
                             stream_callback(new_text)
 
@@ -420,6 +438,9 @@ def get_response(
         logger.error(f"Generation Failed: {e}")
         answer_text = "I encountered an error generating the response."
         cited_indices = []
+    finally:
+        if stream_subsegment is not None:
+            tracer.provider.end_subsegment()
 
     used_sources = []
     for i, source in enumerate(sources, 1):
@@ -431,12 +452,13 @@ def get_response(
 
     if phase_name == "SUGGESTION" and answer_text and not answer_text.startswith("I encountered an error"):
         try:
-            intervention_result = assess_response(
-                query=query,
-                answer_text=answer_text,
-                sources=used_sources,
-                llm_region=llm_region
-            )
+            with tracer.provider.in_subsegment("## verifier"):
+                intervention_result = assess_response(
+                    query=query,
+                    answer_text=answer_text,
+                    sources=used_sources,
+                    llm_region=llm_region
+                )
             warning_text = intervention_result.get("warning_text")
         except Exception as e:
             logger.error(f"Intervention Failed: {e}")

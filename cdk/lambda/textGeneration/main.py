@@ -10,10 +10,13 @@ from helpers.chat import get_response
 from helpers.db_connection import get_db_connection
 import helpers.config as config
 from helpers.session_security import validate_session_ownership, sanitize_session_id, session_exists
+from helpers.tracing import tracer
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Response and error capture stay off: both can contain message text
+@tracer.capture_lambda_handler(capture_response=False, capture_error=False)
 def handler(event, context=None):
     # Warm-up invocation from the WebSocket default route. Module imports have already run;
     # opening the cached DB connection also moves the secret fetch and TLS handshake off
@@ -98,8 +101,9 @@ def handler(event, context=None):
                 'body': json.dumps({'error': 'Unauthorized access to chat session'})
             }
         
-        # Load dynamic configuration from DB
-        config.load_config(conn)
+        # Load dynamic configuration from DB (cached for config.CONFIG_REFRESH_SECONDS)
+        with tracer.provider.in_subsegment("## load_config"):
+            config.load_config(conn)
         
         # Validate the query length against the configured limit
         if len(query) > config.MAX_CHARACTERS_PER_USER_MESSAGE:
