@@ -152,7 +152,10 @@ def handler(event, context=None):
                 except Exception as e:
                     logger.error(f"Failed to send stream chunk: {e}")
 
+        # Requests without a WebSocket connection come from the synchronous HTTP fallback,
+        # which must answer within the API Gateway integration timeout
         response_data = get_response(
+            max_tokens=None if connection_id else config.HTTP_FALLBACK_MAX_TOKENS,
             query=query,
             knowledge_base_id=config.KB_ID,
             region=config.REGION,

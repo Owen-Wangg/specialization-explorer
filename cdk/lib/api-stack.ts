@@ -1042,7 +1042,10 @@ export class ApiGatewayStack extends cdk.Stack {
         runtime: lambda.Runtime.PYTHON_3_12,
         handler: "main.handler",
         code: lambda.Code.fromAsset("lambda/textGeneration"),
-        timeout: cdk.Duration.seconds(60),
+        // Sized for the slowest WebSocket stream: a full MAX_TOKENS (4000) answer at roughly
+        // 60 tokens/s is about 65 s, plus the guardrail, query rewrite, retrieval and verifier.
+        // HTTP fallback requests use a smaller token cap to finish within the 29 s REST limit.
+        timeout: cdk.Duration.seconds(90),
         role: lambdaRole,
         reservedConcurrentExecutions: 100,
         layers: [psycopgLayer, powertoolsLayer],

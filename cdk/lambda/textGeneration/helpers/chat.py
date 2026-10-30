@@ -238,6 +238,7 @@ def get_response(
     stream_callback=None,
     is_intro_message: bool = False,
     user_message_id: Optional[str] = None,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     
     usage_info = {}
@@ -366,7 +367,7 @@ def get_response(
                 {"text": dynamic_prompt}
             ],
             "inferenceConfig": {
-                "maxTokens": config.MAX_TOKENS
+                "maxTokens": max_tokens or config.MAX_TOKENS
             }
         }
 
@@ -447,7 +448,9 @@ def get_response(
         if final_answer_match:
             answer_text = final_answer_match.group(1).strip()
         else:
-            answer_text = full_response_text.split('<cited_indices>')[0].strip()
+            # No closing tag, e.g. the answer stopped at the token limit
+            answer_text = full_response_text.split('<cited_indices>')[0]
+            answer_text = answer_text.split('<answer>', 1)[-1].split('</answer>')[0].strip()
             
         # Parse cited_indices
         indices_match = re.search(r'<cited_indices>\s*\[(.*?)\]\s*</cited_indices>', full_response_text, re.DOTALL)
