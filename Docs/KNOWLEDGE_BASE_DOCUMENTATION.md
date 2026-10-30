@@ -739,7 +739,13 @@ If Bedrock returns `COMPLETE` or `FAILED`, the function:
 5. Deletes the polling schedule
 6. Attempts to continue the workflow
 
-A `COMPLETE` job can still contain documents that failed to ingest (`statistics.numberOfDocumentsFailed`). When a failure reason names a run's S3 object (`s3://bucket/key`), that run is marked `failed` with the reason. Reasons that name no staged file stay on the other runs, and the admin dashboard shows those runs as **Completed with errors**. The CSV and Markdown detail row lists the reasons.
+A `COMPLETE` job can still contain documents that failed to ingest (`statistics.numberOfDocumentsFailed`). Bedrock reports reasons for the whole job, often as one JSON array of messages, so each message is matched to the run it names:
+
+* A message naming a run's S3 object (`s3://bucket/key`) marks that run `failed`.
+* A message naming a website's seed URL marks that website run `failed`, since nothing was ingested from it (for example, the seed redirected outside the crawl scope).
+* A message naming a page under a website's seed path (the crawler's default scope) leaves that run `completed` with the reason, shown as **Completed with errors**.
+
+Runs that no message names stay `completed` with no error. When every failed document is matched, the leftover messages are job-level notices (Bedrock adds a generic "internal error" even to clean crawls) and are only logged. When some failed documents cannot be matched, the leftover messages stay on every unmatched run so the failure is not hidden.
 
 Every terminal poll publishes `FailedDocuments` and `FailedIngestionJobs` to the `<StackPrefix>-Api/KnowledgeBase` CloudWatch namespace through Embedded Metric Format. The `KnowledgeBaseFailedDocumentsAlarm` and `KnowledgeBaseFailedIngestionJobsAlarm` alarms fire when either is at least 1 in a 5-minute period.
 

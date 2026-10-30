@@ -17,6 +17,7 @@ REGION = os.environ["REGION"]
 METRICS_NAMESPACE = os.environ.get("METRICS_NAMESPACE", "SpecEx/KnowledgeBase")
 
 S3_URI_PATTERN = re.compile(r"s3://[^\s,;\]\)\"']+")
+WEB_URL_PATTERN = re.compile(r"https?://[^\s,;\]\)\"']+")
 
 # AWS Clients
 bedrock_agent = boto3.client("bedrock-agent", region_name=REGION)
@@ -133,12 +134,39 @@ def _emit_ingestion_metrics(*, phase: str, failed_documents: int, job_failed: bo
     }))
 
 
-def _s3_uris_by_run(connection, *, ingestion_run_ids: list[str]) -> dict[str, set[str]]:
-    """The S3 objects each ingestion run's data source was ingested from (split CSVs have parts)"""
+def _split_failure_reasons(failure_reasons: list[str]) -> list[str]:
+    """
+    Bedrock often returns one failure reason that is itself a JSON array of messages
+    (e.g. '["Skipped document: ...", "The server encountered an internal error..."]').
+    Split those so each message can be matched to a run on its own.
+    """
+    messages = []
+    for reason in failure_reasons:
+        try:
+            parsed = json.loads(reason)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+            messages.extend(parsed)
+        else:
+            messages.append(reason)
+    return messages
+
+
+def _normalize_url(url: str) -> str:
+    """Compare URLs without the sentence punctuation or trailing slash around them"""
+    return url.rstrip(".").rstrip("/")
+
+
+def _run_sources(connection, *, ingestion_run_ids: list[str]) -> dict[str, dict]:
+    """
+    What each ingestion run ingested: the S3 objects for file sources (split CSVs have
+    parts), or the seed URL for website sources.
+    """
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT ir.id, ds.metadata
+            SELECT ir.id, ds.type::text, ds.name, ds.metadata
             FROM ingestion_runs ir
             JOIN data_sources ds ON ds.id = ir.data_source_id
             WHERE ir.id = ANY(%s::uuid[])
@@ -147,33 +175,73 @@ def _s3_uris_by_run(connection, *, ingestion_run_ids: list[str]) -> dict[str, se
         )
         rows = cursor.fetchall()
 
-    uris = {}
-    for run_id, metadata in rows:
+    sources = {}
+    for run_id, source_type, name, metadata in rows:
         metadata = metadata or {}
         bucket = metadata.get("s3_bucket")
         keys = metadata.get("s3_part_keys") or [metadata.get("s3_key")]
-        uris[str(run_id)] = {f"s3://{bucket}/{key}" for key in keys if bucket and key}
-    return uris
+        sources[str(run_id)] = {
+            "s3_uris": {f"s3://{bucket}/{key}" for key in keys if bucket and key},
+            "website": _normalize_url(name) if source_type == "website" and name else None,
+        }
+    return sources
+
+
+def _website_run_for_url(url: str, seeds: dict[str, str]) -> str | None:
+    """
+    The website run whose crawl covers a URL. The crawler's default scope is the seed URL
+    and the pages under its path, so the most specific seed that is a prefix wins.
+    https://docs.aws.amazon.com/bedrock/latest/userguide/webcrawl-data-source-connector.html
+    """
+    best_run, best_len = None, -1
+    for run_id, seed in seeds.items():
+        if (url == seed or url.startswith(seed + "/")) and len(seed) > best_len:
+            best_run, best_len = run_id, len(seed)
+    return best_run
 
 
 def _attribute_document_failures(
     connection, *, ingestion_run_ids: list[str], failure_reasons: list[str]
-) -> tuple[dict[str, list[str]], list[str]]:
+) -> tuple[dict[str, dict], list[str], int]:
     """
-    Matches document-level failure reasons to ingestion runs by the S3 URIs they name.
-    Returns the reasons for each failed run, and the reasons that name no run's file.
+    Matches document-level failure reasons to ingestion runs by the S3 URIs or web URLs
+    they name.
+
+    Returns:
+    - per run: its reasons, and whether the run itself failed. A file run fails when its
+      file is named. A website run fails only when its seed page is named; a failed page
+      under the seed leaves the run completed with errors.
+    - the reasons that name no run
+    - how many distinct documents the matched reasons named
     """
-    uris_by_run = _s3_uris_by_run(connection, ingestion_run_ids=ingestion_run_ids)
-    failed = {}
+    sources = _run_sources(connection, ingestion_run_ids=ingestion_run_ids)
+    seeds = {run_id: s["website"] for run_id, s in sources.items() if s["website"]}
+
+    attributed = {}
     unmatched = []
-    for reason in failure_reasons:
-        named = {uri.rstrip(".") for uri in S3_URI_PATTERN.findall(reason)}
-        matched_runs = [run_id for run_id, uris in uris_by_run.items() if uris & named]
+    matched_documents = set()
+    for reason in _split_failure_reasons(failure_reasons):
+        matched_runs = {}
+
+        named_uris = {uri.rstrip(".") for uri in S3_URI_PATTERN.findall(reason)}
+        for run_id, source in sources.items():
+            if source["s3_uris"] & named_uris:
+                matched_runs[run_id] = True
+                matched_documents.update(source["s3_uris"] & named_uris)
+
+        for url in {_normalize_url(u) for u in WEB_URL_PATTERN.findall(reason)}:
+            run_id = _website_run_for_url(url, seeds)
+            if run_id:
+                matched_runs[run_id] = matched_runs.get(run_id, False) or url == seeds[run_id]
+                matched_documents.add(url)
+
         if not matched_runs:
             unmatched.append(reason)
-        for run_id in matched_runs:
-            failed.setdefault(run_id, []).append(reason)
-    return failed, unmatched
+        for run_id, run_failed in matched_runs.items():
+            entry = attributed.setdefault(run_id, {"reasons": [], "failed": False})
+            entry["reasons"].append(reason)
+            entry["failed"] = entry["failed"] or run_failed
+    return attributed, unmatched, len(matched_documents)
 
 
 def _get_run_rows(connection, *, ingestion_run_ids: list[str]) -> list[dict]:
@@ -482,28 +550,40 @@ def update_status(event, connection):
     next_step = None
 
     try:
-        # A COMPLETE job can still have failed documents. Runs whose files the failure
-        # reasons name are marked failed, so the admin dashboard does not show them as completed.
-        failed_run_reasons = {}
+        # A COMPLETE job can still have failed documents. Each reason goes only to the run whose
+        # file or website it names, so one bad page does not mark the whole batch with errors.
+        attributed_runs = {}
         if normalized_status == "completed" and (failed_document_count or failure_reasons):
-            failed_run_reasons, unmatched_reasons = _attribute_document_failures(
+            attributed_runs, unmatched_reasons, matched_document_count = _attribute_document_failures(
                 connection,
                 ingestion_run_ids=db_ingestion_run_ids,
                 failure_reasons=failure_reasons,
             )
-            if failed_run_reasons:
+            if matched_document_count >= failed_document_count:
+                # Every failed document is accounted for, so what is left are job-level notices
+                # (Bedrock adds a generic "internal error" even to clean crawls). Log, do not attach.
+                if unmatched_reasons:
+                    logger.info(
+                        "Ingestion job %s job-level notices not attached to runs: %s",
+                        bedrock_ingestion_job_id,
+                        "; ".join(unmatched_reasons),
+                    )
+                error_message = None
+            else:
+                # Some failed documents could not be matched to a run, so every other run keeps
+                # the unmatched reasons rather than hiding a failure.
                 error_message = "; ".join(unmatched_reasons) if unmatched_reasons else None
 
         rows_updated = 0
-        for run_id, reasons in failed_run_reasons.items():
+        for run_id, entry in attributed_runs.items():
             rows_updated += _update_ingestion_runs(
                 connection,
                 ingestion_run_ids=[run_id],
-                status="failed",
-                error_message="; ".join(reasons),
+                status="failed" if entry["failed"] else normalized_status,
+                error_message="; ".join(entry["reasons"]),
             )
 
-        remaining_run_ids = [x for x in db_ingestion_run_ids if x not in failed_run_reasons]
+        remaining_run_ids = [x for x in db_ingestion_run_ids if x not in attributed_runs]
         if remaining_run_ids:
             rows_updated += _update_ingestion_runs(
                 connection,
