@@ -9,6 +9,7 @@ import { DBFlowStack } from "../lib/dbFlow-stack";
 import { AmplifyStack } from "../lib/amplify-stack";
 import { CICDStack } from "../lib/cicd-stack";
 import { KnowledgeBaseStack } from "../lib/knowledge-base-stack";
+import { BackupStack, addToBackupPlan } from "../lib/backup-stack";
 
 const app = new cdk.App();
 
@@ -93,6 +94,15 @@ const amplifyStack = new AmplifyStack(app, `${StackPrefix}-Amplify`, apiStack, {
 });
 amplifyStack.addDependency(apiStack);
 
+// Daily AWS Backup of the database (users, chats) and the knowledge base bucket (documents).
+// Resources are selected by tag, so this stack has no references to the other stacks.
+const backupStack = new BackupStack(app, `${StackPrefix}-Backup`, {
+  env,
+  stackPrefix: StackPrefix,
+});
+addToBackupPlan(dbStack.dbInstance.node.defaultChild!, StackPrefix);
+addToBackupPlan(kbStack.knowledgeBaseBucket.node.defaultChild!, StackPrefix);
+
 const stackTags = {
   Project: "specEx",
   StackPrefix: StackPrefix || "SpecEx",
@@ -108,6 +118,7 @@ const stacks = [
   kbStack,
   apiStack,
   amplifyStack,
+  backupStack,
 ];
 
 stacks.forEach((stack) => {
