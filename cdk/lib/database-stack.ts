@@ -1,4 +1,4 @@
-import { Stack, StackProps, RemovalPolicy, SecretValue } from "aws-cdk-lib";
+import { Stack, StackProps, RemovalPolicy, SecretValue, Token } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { Duration } from "aws-cdk-lib";
 
@@ -256,11 +256,16 @@ export class DatabaseStack extends Stack {
     });
 
     // The rotation functions and the proxy write to log groups their services create outside
-    // CloudFormation, so the retention is applied to the existing groups
+    // CloudFormation, so the retention is applied to the existing groups.
+    // RDS stores proxy names in lowercase, and the proxy's log group uses the stored name.
+    // The name CDK writes into the template is a plain string, so it can be lowercased here
+    // without changing the proxy itself.
+    const cfnProxyName = (rdsProxy.node.defaultChild as rds.CfnDBProxy).dbProxyName;
+    const proxyName = Token.isUnresolved(cfnProxyName) ? rdsProxy.dbProxyName : cfnProxyName.toLowerCase();
     [
       `/aws/lambda/${id}-AppUserRotation`,
       `/aws/lambda/${id}-TableCreatorRotation`,
-      `/aws/rds/proxy/${rdsProxy.dbProxyName}`,
+      `/aws/rds/proxy/${proxyName}`,
     ].forEach((logGroupName, index) => {
       new logs.LogRetention(this, `${id}-ServiceLogRetention${index}`, {
         logGroupName,
