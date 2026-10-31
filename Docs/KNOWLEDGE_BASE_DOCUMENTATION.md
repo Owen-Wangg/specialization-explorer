@@ -640,6 +640,18 @@ The selected batch size depends on crawler capacity:
 | Selected crawler has 5,000 or fewer remaining pages   | 1 website        |
 | No available crawler and a new crawler may be created | Up to 5 websites |
 
+### Crawler seed URL limits
+
+Bedrock rejects a web crawler update with more than 100 seed URLs (`MAX_SEED_URLS`), or with seed URLs whose combined length is 3,000 characters or more (`MAX_SEED_URL_CHARS` is 2,999). Before updating the crawler, `_plan_website_batch` checks each queued website against the room left on it:
+
+* Websites that fit are batched as described above.
+* Websites that do not fit are marked `failed` with a "web crawler is full" message, so they do not stay `queued` and block every later sync. Room only shrinks as batches are added, so a website that does not fit now never will on that crawler.
+* If Bedrock still rejects the update with a `ValidationException` (for example a limit the code does not check), the batch is marked `failed` with Bedrock's reason.
+
+Since September 30, 2026, Bedrock no longer allows new Web Crawler connectors on customer-managed knowledge bases ([Bedrock docs](https://docs.aws.amazon.com/bedrock/latest/userguide/webcrawl-data-source-connector.html)). `NEW_WEB_CRAWLERS_SUPPORTED` is therefore `False`: the existing crawler is the only one, and when it is busy the queued websites wait for its current job instead of a new crawler being created.
+
+To make room, remove websites from the crawler, replace several pages with a shorter parent URL (the default scope crawls every page under a seed's path), or upload the pages as Markdown files.
+
 ### Updating an existing crawler
 
 If an available crawler exists, the helper updates that Bedrock data source by appending new seed URLs.
